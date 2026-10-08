@@ -14,8 +14,8 @@ import Phaser from "phaser";
 import { BibliothecaScene } from "./BibliothecaScene";
 
 /** Internal resolution — same constants as the scene's room rectangle. */
-const GAME_W = 384;
-const GAME_H = 240;
+const GAME_W = 480;
+const GAME_H = 270;
 
 export function startGame(parent: HTMLElement): Phaser.Game {
   return new Phaser.Game({

@@ -55,9 +55,10 @@ export function computePlacements(
     }
   }
 
-  // Pass 2 — auto-place the rest on a spiral around the origin. The root
-  // room anchors the origin; everything else fills the nearest free cell.
-  let spiral = spiralCoordinates();
+  // Pass 2 — auto-place the rest in reading order: rightward first (6 per
+  // row), then wrap downward. Deterministic, and new rooms grow in the
+  // direction a side-scroller world reads naturally.
+  const auto = autoCells();
   for (const id of roomIds) {
     if (placements.has(id)) continue;
     if (id === tree.rootNoteId) {
@@ -68,7 +69,7 @@ export function computePlacements(
       }
       continue;
     }
-    for (const [x, y] of spiral) {
+    for (const [x, y] of auto) {
       if (!occupied.has(cell(x, y))) {
         placements.set(id, { noteId: id, x, y, manual: false });
         occupied.add(cell(x, y));
@@ -80,15 +81,10 @@ export function computePlacements(
   return placements;
 }
 
-/** Generator of grid cells in an expanding square spiral around (0,0). */
-function* spiralCoordinates(): Generator<[number, number]> {
-  // Deterministic order: ring by ring, starting with the origin itself.
-  yield [0, 0] as [number, number];
-  for (let r = 1; ; r++) {
-    for (let x = -r; x <= r; x++) yield [x, -r]; // top edge
-    for (let y = -r + 1; y <= r; y++) yield [r, y]; // right edge
-    for (let x = r - 1; x >= -r; x--) yield [x, r]; // bottom edge
-    for (let y = r - 1; y >= -r + 1; y--) yield [-r, y]; // left edge
+/** Generator of grid cells in reading order: row-major, 6 columns, growing down. */
+function* autoCells(): Generator<[number, number]> {
+  for (let row = 0; ; row++) {
+    for (let col = 0; col < 6; col++) yield [col, row];
   }
 }
 

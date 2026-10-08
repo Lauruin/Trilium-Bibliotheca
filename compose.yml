@@ -1,0 +1,51 @@
+# compose.yml — disposable Trilium mock for development & testing.
+#
+# Per AGENTS.md: there is no shared Trilium mock; every Trilium instance on
+# this machine is in real use, so this project stands up its own throwaway
+# instance inside the DinD daemon. It is ours to break, wipe and recreate.
+#
+# Networking:
+#   - Runs in the DinD daemon (DOCKER_HOST=tcp://dind:2375).
+#   - Publishes 31090 (within the 31000–31099 window; 31080 is odd-arcade's).
+#   - From this container:   http://dind:31090
+#   - From the host/laptop:  http://<host-ip>:31090
+#
+# CORS (docs.triliumnotes.org → Configuration → CORS, since v0.93.0):
+#   The app fetches Trilium directly from the browser, so the mock allows
+#   every origin and the auth/content-type headers. `*` is fine for a
+#   throwaway instance with test data — never do this on a real one.
+#
+# Image (docs.triliumnotes.org → Server Installation → Using Docker):
+#   triliumnext/trilium, pinned tag — docs warn against `latest` (it can
+#   upgrade your instance under you). v0.106.0 = current release at build
+#   time, verified against GitHub releases before being written here.
+#
+# Data: named volume `trilium-mock-data` → /home/node/trilium-data, so
+# `docker compose restart` keeps test data; delete the volume for a clean
+# slate (tools/trilium-bootstrap.sh --recreate does exactly that).
+
+services:
+  trilium:
+    image: triliumnext/trilium:v0.106.0
+    container_name: bibliotheca-trilium-mock
+    restart: unless-stopped
+    ports:
+      - "31090:8080"
+    environment:
+      # CORS for the browser-based app (see note above).
+      TRILIUM_NETWORK_CORS_ALLOW_ORIGIN: "*"
+      TRILIUM_NETWORK_CORS_ALLOW_METHODS: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+      TRILIUM_NETWORK_CORS_ALLOW_HEADERS: "Authorization,Content-Type"
+    volumes:
+      - trilium-mock-data:/home/node/trilium-data
+    healthcheck:
+      # A fresh instance serves the setup page with 200; an initialized one
+      # serves the login page. Either way, "200 on /" means Trilium is up.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  trilium-mock-data:

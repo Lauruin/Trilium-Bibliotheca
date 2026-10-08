@@ -82,6 +82,10 @@ export async function walkLibraryTree(
     const batch = queue.splice(0, POOL);
     const results = await Promise.all(
       batch.map(async ({ id, parent, depth }) => {
+        // "_hidden" is Trilium's own internal subtree (search home, launcher
+        // notes, etc.). It is not user content — it would otherwise show up
+        // as a permanent door in the Library room. Skip it and its descendants.
+        if (id === "_hidden") return null;
         try {
           const n = await client.getNote(id);
           return { n, parent, depth };

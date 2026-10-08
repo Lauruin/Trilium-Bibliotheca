@@ -13,15 +13,16 @@
  * because they travel with the note (renames/moves keep them) and are synced
  * by whatever already syncs Trilium (see game-ui.md, "Layout is data").
  *
- * Naming: we namespace with `biblio.` so the app can never collide with
- * labels a user (or another tool) already uses. Trilium normalises attribute
- * names to lowercase, so `Biblio.X` and `biblio.x` are the same label.
+ * GOTCHA (verified against v0.106.0): Trilium normalises attribute names and
+ * *strips dots* — a label created as `biblio.x` comes back as `biblio_x`.
+ * So these names use underscores from the start; never write dotted names.
+ * Names are lowercase-insensitive server-side.
  */
 export const LABELS = {
   /** Horizontal grid cell of a room (integer as string). Absent = auto-placed. */
-  roomX: "biblio.x",
+  roomX: "biblio_x",
   /** Vertical grid cell of a room (integer as string). Absent = auto-placed. */
-  roomY: "biblio.y",
+  roomY: "biblio_y",
   /**
    * Note colour override, in Trilium's own convention (#color label, CSS
    * colour name or hex). NOT written by us — we only read it for spine colour.

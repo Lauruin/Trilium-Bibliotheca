@@ -22,19 +22,22 @@ import { NPC } from "../config";
 import { buildRoomContents } from "../lib/library";
 import { ASSET_KEYS, registerBuiltInPack } from "./textures";
 import { bus } from "./events";
-import type { LibraryTree, RoomContents, RoomPlacement } from "../types";
+import type { Book, LibraryTree, RoomContents, RoomPlacement } from "../types";
 
-/** Room dimensions in world pixels. 16px tiles, retro 384×240 screen. */
-const ROOM_W = 384;
-const ROOM_H = 240;
+/** Room dimensions in world pixels. 16px tiles, retro 480×270 screen. */
+const ROOM_W = 480;
+const ROOM_H = 270;
 /** Floor top edge — where the player's feet are. */
-const FLOOR_Y = ROOM_H - 56;
+const FLOOR_Y = ROOM_H - 64;
 /** Max doors rendered per room (more get a "+N doors" note). */
-const MAX_DOORS = 6;
+const MAX_DOORS = 3;
 /** Max scrolls rendered on the desk (more get a "+N more" note). */
 const MAX_SCROLLS = 6;
-/** Interact radius: player centre → object centre. */
-const INTERACT_RANGE = 34;
+/** Max shelf units rendered per room (more tags fold into nothing visible). */
+const MAX_SHELVES = 5;
+/** Interact radius: player centre → object centre. Generous on purpose —
+ * the world-bounds wall can stop the player ~40px short of a door. */
+const INTERACT_RANGE = 46;
 
 /** Key groups — several physical keys map to one action. */
 interface KeyGroups {
@@ -66,6 +69,9 @@ export interface WorldData {
 }
 
 export class BibliothecaScene extends Phaser.Scene {
+  /** The one live scene instance; static bus handlers forward to it. */
+  private static current: BibliothecaScene | null = null;
+
   private world: WorldData | null = null;
   /** React sets this while a modal is open — keys must not act then. */
   private paused = false;
@@ -159,21 +165,44 @@ export class BibliothecaScene extends Phaser.Scene {
       .setName("waiting");
 
     // --- React → scene events ----------------------------------------------
-    bus.on("scene:load-world", ({ tree, placements, rootNoteId }) => {
-      this.world = { tree, placements, rootNoteId };
-      this.parentOf.clear();
-      for (const e of tree.edges) this.parentOf.set(e.noteId, e.parentNoteId);
-      this.enterRoom(rootNoteId);
+    // Handlers live at MODULE level (registered once, below the class) and
+    // forward to whichever scene instance is currently alive. Registering
+    // per-create leaks: Phaser's destroy is deferred to its next step, so a
+    // destroyed scene's handlers can outlive a replacement scene's
+    // registration and then blow up on torn-down internals (seen under
+    // React StrictMode).
+    BibliothecaScene.current = this;
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      if (BibliothecaScene.current === this) BibliothecaScene.current = null;
+    });
+  }
+
+  /**
+   * Register the React → Phaser handlers exactly once (called at module
+   * import). Events reach only the live instance — a destroyed scene can
+   * never receive them (this was a real crash under StrictMode remounts).
+   */
+  static wireBus(): void {
+    bus.on("scene:load-world", (payload) => {
+      const scene = BibliothecaScene.current;
+      if (!scene) return;
+      scene.world = payload;
+      scene.parentOf.clear();
+      for (const e of payload.tree.edges) scene.parentOf.set(e.noteId, e.parentNoteId);
+      scene.enterRoom(payload.rootNoteId);
     });
     bus.on("scene:enter-room", ({ noteId }) => {
-      if (this.world) this.enterRoom(noteId);
+      const scene = BibliothecaScene.current;
+      if (scene?.world) scene.enterRoom(noteId);
     });
-    bus.on("scene:overview", ({ on }) => this.setOverview(on));
+    bus.on("scene:overview", ({ on }) => BibliothecaScene.current?.setOverview(on));
     bus.on("scene:paused", ({ on }) => {
-      this.paused = on;
+      const scene = BibliothecaScene.current;
+      if (!scene) return;
+      scene.paused = on;
       if (on) {
         // Halt the player so no key held before the pause carries over.
-        const body = this.player?.body as Phaser.Physics.Arcade.Body | undefined;
+        const body = scene.player?.body as Phaser.Physics.Arcade.Body | undefined;
         if (body) body.setVelocityX(0);
       }
     });
@@ -274,17 +303,22 @@ export class BibliothecaScene extends Phaser.Scene {
     this.roomObjects.push(plate);
   }
 
-  /** Shelves with book spines, laid left→right along the back wall. */
+  /** Shelves with book spines, laid left→right along the back wall.
+   * Zone plan (ROOM_W 480): x 24 exit door · 46–86 desk · 96–120 Socrates ·
+   * 140–296 shelves · right wall 308–456 doors. The wisp floats above. */
   private drawShelves(contents: RoomContents): void {
-    let shelfX = 24;
-    const shelfY = FLOOR_Y - 8; // bottom edge of the shelf texture sits on the floor
+    let shelfX = 140;
 
-    for (const shelf of contents.shelves) {
+    for (const shelf of contents.shelves.slice(0, MAX_SHELVES)) {
       const shelfColor = Phaser.Display.Color.HexStringToColor(shelf.color).color;
+      // Frame spans FLOOR_Y-14 .. FLOOR_Y+2 (bottom 2px sunk into the floor
+      // so it reads as standing ON the floor, not floating above it).
+      const plankTop1 = FLOOR_Y - 14; // upper plank's top edge
+      const plankTop2 = FLOOR_Y - 5;  // lower plank's top edge
 
       // Tag label above the shelf block.
       const tag = this.add
-        .text(shelfX + 24, shelfY - 42, `#${shelf.tag}`, {
+        .text(shelfX + 24, FLOOR_Y - 48, `#${shelf.tag}`, {
           fontFamily: "ui-monospace, monospace",
           fontSize: "9px",
           color: shelf.color,
@@ -296,50 +330,77 @@ export class BibliothecaScene extends Phaser.Scene {
       this.roomObjects.push(tag);
 
       // Shelf frame texture (48×16, tinted with the shelf colour).
-      const frame = this.add.image(shelfX + 24, shelfY - 8, ASSET_KEYS.shelf).setDepth(20);
+      const frame = this.add.image(shelfX + 24, FLOOR_Y - 6, ASSET_KEYS.shelf).setDepth(20);
       frame.setTint(shelfColor);
       this.roomObjects.push(frame);
 
-      // Book spines stand on the top plank (its top edge is at shelfY - 16).
+      // Book spines: tier 1 stands on the upper plank, overflow fills a
+      // second (shorter) tier on the lower plank.
       let bx = shelfX + 3;
+      const tier2: typeof shelf.books = [];
       for (const book of shelf.books) {
         const w = spineWidth(book.title);
-        const h = 13 + (book.title.length % 4);
-        const spine = this.add
-          .rectangle(
-            bx + w / 2,
-            shelfY - 16 - h / 2,
-            w,
-            h,
-            Phaser.Display.Color.HexStringToColor(book.color).color,
-          )
-          .setStrokeStyle(1, 0x0e0d16, 0.9)
-          .setDepth(21)
-          .setInteractive({ useHandCursor: true });
-        spine.on("pointerup", () => bus.emit("book:open", { noteId: book.noteId }));
-        // Hover feedback: nudge the spine up slightly.
-        spine.on("pointerover", () => spine.y -= 2);
-        spine.on("pointerout", () => spine.y += 2);
-        this.roomObjects.push(spine);
-        this.interactables.push({
-          obj: spine,
-          kind: "book",
-          payload: { noteId: book.noteId },
-          hint: `E · open "${truncate(book.title)}"`,
-        });
+        if (bx + w > shelfX + 46) {
+          tier2.push(book);
+          continue;
+        }
+        this.drawSpine(book, bx + w / 2, plankTop1, 14);
         bx += w + 1;
-        if (bx > shelfX + 44) break; // spine row full; visual cap per shelf
+      }
+      let bx2 = shelfX + 4;
+      for (const book of tier2.slice(0, 6)) {
+        const w = spineWidth(book.title);
+        this.drawSpine(book, bx2 + w / 2, plankTop2, 8);
+        bx2 += w + 1;
+      }
+      if (shelf.books.length > 14) {
+        const more = this.add
+          .text(shelfX + 24, FLOOR_Y - 28, `+${shelf.books.length - 14}`, {
+            fontFamily: "ui-monospace, monospace",
+            fontSize: "8px",
+            color: "#b8a878",
+          })
+          .setOrigin(0.5, 1)
+          .setDepth(60);
+        this.roomObjects.push(more);
       }
 
       shelfX += 56;
-      if (shelfX > ROOM_W - 90) break; // room fills up; extra shelves unrendered (v1 cap)
+      if (shelfX > ROOM_W - 200) break; // keep clear of the door wall
     }
+  }
+
+  /** One book spine: a coloured rectangle standing on a plank top edge. */
+  private drawSpine(book: Book, cx: number, plankTopY: number, maxH: number): void {
+    const h = Math.min(8 + (book.title.length % 6), maxH);
+    const spine = this.add
+      .rectangle(
+        cx,
+        plankTopY - h / 2,
+        spineWidth(book.title),
+        h,
+        Phaser.Display.Color.HexStringToColor(book.color).color,
+      )
+      .setStrokeStyle(1, 0x0e0d16, 0.9)
+      .setDepth(21)
+      .setInteractive({ useHandCursor: true });
+    spine.on("pointerup", () => bus.emit("book:open", { noteId: book.noteId }));
+    // Hover feedback: nudge the spine up slightly.
+    spine.on("pointerover", () => spine.y -= 2);
+    spine.on("pointerout", () => spine.y += 2);
+    this.roomObjects.push(spine);
+    this.interactables.push({
+      obj: spine,
+      kind: "book",
+      payload: { noteId: book.noteId },
+      hint: `E · open "${truncate(book.title)}"`,
+    });
   }
 
   /** Desk with loose scrolls (unlabelled notes). */
   private drawDesk(contents: RoomContents): void {
     if (contents.desk.length === 0) return;
-    const deskX = ROOM_W - 70;
+    const deskX = 46; // left zone, next to the exit door
     const desk = this.add.image(deskX + 20, FLOOR_Y - 10, ASSET_KEYS.desk).setDepth(20);
     this.roomObjects.push(desk);
 
@@ -384,14 +445,16 @@ export class BibliothecaScene extends Phaser.Scene {
   private drawDoors(contents: RoomContents): void {
     const doors = contents.doors.slice(0, MAX_DOORS);
     doors.forEach((door, i) => {
-      const dx = ROOM_W - 60 - i * 34;
+      // Right-wall row; staggered label heights keep the signs readable.
+      const dx = ROOM_W - 48 - i * 44;
+      const ly = FLOOR_Y - 32 - (i % 2) * 11;
       const sprite = this.add
         .sprite(dx, FLOOR_Y, ASSET_KEYS.door)
         .setOrigin(0.5, 1)
         .setDepth(20)
         .setInteractive({ useHandCursor: true });
       const label = this.add
-        .text(dx, FLOOR_Y - 32, truncate(door.title, 14), {
+        .text(dx, ly, truncate(door.title, 10), {
           fontFamily: "ui-monospace, monospace",
           fontSize: "8px",
           color: "#d8c8a0",
@@ -406,12 +469,12 @@ export class BibliothecaScene extends Phaser.Scene {
         obj: sprite,
         kind: "door",
         payload: { noteId: door.noteId },
-        hint: `E · enter "${truncate(door.title, 14)}"`,
+        hint: `E · enter "${truncate(door.title, 12)}"`,
       });
     });
     if (contents.doors.length > MAX_DOORS) {
       const more = this.add
-        .text(ROOM_W - 44, FLOOR_Y - 48, `+${contents.doors.length - MAX_DOORS} doors`, {
+        .text(ROOM_W - 50, FLOOR_Y - 48, `+${contents.doors.length - MAX_DOORS} doors`, {
           fontFamily: "ui-monospace, monospace",
           fontSize: "8px",
           color: "#b8a878",
@@ -451,9 +514,9 @@ export class BibliothecaScene extends Phaser.Scene {
 
   /** Wisp (search) + Socrates (placeholder dialog) — the room's amenities. */
   private drawAmenities(): void {
-    // Wisp floats near the middle-left, bobbing.
-    const wispX = ROOM_W / 2 - 60;
-    const wispY = FLOOR_Y - 60;
+    // Wisp floats above the shelf zone, bobbing.
+    const wispX = ROOM_W / 2 - 20;
+    const wispY = FLOOR_Y - 100;
     const wisp = this.add
       .sprite(wispX, wispY, ASSET_KEYS.wisp)
       .setDepth(30)
@@ -484,9 +547,9 @@ export class BibliothecaScene extends Phaser.Scene {
       hint: "E · search the vault",
     });
 
-    // Socrates: marble statue on a plinth. Honest placeholder — the
-    // intelligence service (chat/RAG) is a later plane of the architecture.
-    const socX = ROOM_W / 2 + 80;
+    // Socrates: marble statue on a plinth, left zone beside the desk. Honest
+    // placeholder — the intelligence service (chat/RAG) is a later plane.
+    const socX = 108;
     const plinth = this.add.rectangle(socX, FLOOR_Y - 4, 24, 8, 0x3a3a4a).setDepth(19);
     const soc = this.add
       .sprite(socX, FLOOR_Y - 8, ASSET_KEYS.socrates)
@@ -526,6 +589,12 @@ export class BibliothecaScene extends Phaser.Scene {
     this.overviewOn = on;
 
     if (on) {
+      // Hide the room entirely: overview shows only the placement blocks.
+      // (GameObjects all mix in Visible at runtime; the union type doesn't
+      // know that, hence the narrow structural cast.)
+      for (const o of this.roomObjects) {
+        (o as unknown as { setVisible(v: boolean): void }).setVisible(false);
+      }
       this.player.setVisible(false);
       (this.player.body as Phaser.Physics.Arcade.Body).enable = false;
       this.hint.setVisible(false);
@@ -732,3 +801,12 @@ function spineWidth(title: string): number {
 function truncate(s: string, max = 18): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
+
+// ---------------------------------------------------------------------------
+// Module-level React → Phaser event wiring
+// ---------------------------------------------------------------------------
+
+// Registered exactly once at import. Events reach only the live scene
+// instance (`current`), so destroying and recreating the game (React
+// StrictMode, HMR) can never deliver events to a dead scene.
+BibliothecaScene.wireBus();

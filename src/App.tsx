@@ -16,7 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_ROOT_NOTE_ID } from "./config";
 import { startGame } from "./game/game";
 import { bus } from "./game/events";
-import { loadTreeCache, saveSettings, saveTreeCache } from "./lib/cache";
+import { loadSettings, loadTreeCache, saveSettings, saveTreeCache } from "./lib/cache";
 import { computePlacements, saveRoomPosition } from "./lib/layout";
 import { walkLibraryTree } from "./lib/library";
 import { TriliumApiError } from "./lib/trilium/client";
@@ -43,9 +43,14 @@ export default function App(): React.JSX.Element {
     return () => void game.destroy(true);
   }, []);
 
-  // --- first run: no settings → open the settings modal ---------------------
+  // --- first run / boot: hydrate settings, open modal if none ---------------
   useEffect(() => {
-    if (getState().settings === null) setSettingsOpen(true);
+    const s = loadSettings();
+    if (s) {
+      setState({ settings: s, conn: "connecting" });
+    } else {
+      setSettingsOpen(true);
+    }
   }, []);
 
   // --- connection lifecycle ---------------------------------------------------
@@ -190,6 +195,7 @@ function handleRefreshError(err: unknown): void {
   }
   setState({ conn: "error" });
   notify("error", `Connection problem: ${errorMessage(err)}`);
+  console.error("[App] refresh failed:", err); // stack in devtools; surfaced as toast too
 }
 
 function errorMessage(err: unknown): string {

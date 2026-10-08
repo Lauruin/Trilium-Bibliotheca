@@ -82,41 +82,121 @@ Use the right hop. A `200` from the wrong one may be someone else's service.
 
 ## Commands
 
-Not yet scaffolded. Fill this in the moment real scripts exist, then delete this note.
-
 - Install: `npm install`
-- Dev server: `npm run dev` — publish on a port in **31000–31099**
-- Build: `npm run build`
-- Test: `npm test`
+- Dev server: `npm run dev` → http://localhost:31085 (port pinned in vite.config.ts)
+- Build: `npm run build` (tsc + vite)
+- Full verification: `npm test` → runs `tools/check.sh`
+- Trilium mock lifecycle: `tools/trilium-bootstrap.sh` (start/ensure token),
+  `--recreate` (wipe volume + full bootstrap), `--down`
+- Seed demo content: `node tools/seed-demo.js` (idempotent)
+- ETAPI integration assertions: `tools/etapi-probe.sh` (needs `.bootstrap.env`)
+- Browser pass: `node tools/browser-test.js` (seeds its own vault; needs
+  `.bootstrap.env`; uses odd-arcade's playwright-core + the shared
+  `~/.cache/ms-playwright` chromium)
+
+## Ports (claimed)
+
+- 31085 — vite dev server (this project)
+- 31086 — vite preview (build check)
+- 31090 — Trilium mock (compose.yml), published through DinD
+- (odd-arcade still owns 31080.)
+
+## Verified ETAPI contract (v0.106.0, live instance)
+
+All verified with `tools/etapi-probe.sh` against the disposable mock. The
+authoritative spec: `apps/server/src/assets/etapi.openapi.yaml` in
+TriliumNext/Trilium (v0.106.0). Base path `/etapi`, auth via `Authorization`
+header (bare token, or `Bearer`-prefixed, or Basic with user "etapi").
+
+| Endpoint | Verified behaviour |
+|---|---|
+| `GET /etapi/app-info` | 401 `{status,code:"NOT_AUTHENTICATED",message}` without token (expected!), 200 `{appVersion:"0.106.0",dbVersion:240,syncVersion:39,buildDate,...}` with |
+| `POST /etapi/auth/login` `{password}` | 201 `{authToken}` — no auth needed; 429 blacklists the IP on too many attempts |
+| `GET /etapi/notes/{id}` | Note: `{noteId,title,type,mime,attributes:[{attributeId,noteId,type:"label",name,value,position,isInheritable}],childNoteIds,parentNoteIds,...}`; `childNoteIds` is in tree order |
+| `GET /etapi/notes/{id}/content` | raw content as text (HTML for text notes), Content-Type = note mime |
+| `GET /etapi/notes?search=…` | `{results:[Note…]}` — full-text search |
+| `POST /etapi/create-note` `{parentNoteId,title,type,content,…}` | 201 `{note:Note,branch:Branch}` |
+| `DELETE /etapi/notes/{id}` | 204 |
+| `POST /etapi/attributes` `{noteId,type:"label",name,value}` | 201/200 Attribute with `attributeId` |
+| `PATCH /etapi/attributes/{id}` `{value}` | 200 Attribute |
+| `DELETE /etapi/attributes/{id}` | 204 |
+
+Not needed so far (documented in spec): branches CRUD, attachments,
+revisions, day-notes, backup, metrics, note content PUT.
+
+## Auth bootstrap (headless, verified — do not re-derive)
+
+A fresh instance has NO password and NO token. The v0.106 flow (SPA-driven
+since the old `#setup` page is gone — `/setup` 404s with a view-lookup error):
+
+1. `GET /api/setup/status` → `{"isInitialized":bool,...}` (the SPA calls the
+   same thing `dbInitialized`; the wire field is `isInitialized`)
+2. If not initialized: `POST /api/setup/new-document?skipDemoDb` JSON
+   `{locale:"en"}` → 204
+3. `POST /set-password` — a plain HTML form POST (`password1` & `password2`,
+   form-encoded, NOT JSON) → 302. Re-posting on an initialized instance is
+   harmless (302 again).
+4. `POST /etapi/auth/login` JSON `{password}` → 201 `{authToken}`
+
+All of this is implemented in `tools/trilium-bootstrap.sh` (idempotent:
+valid-token check → password login → full setup, in that order).
+
+## Gotchas (symptom → cause)
+
+- **Label created as `biblio.x` comes back as `biblio_x`** — Trilium
+  normalises attribute names and strips dots. Use underscore names from the
+  start (config.LABELS does).
+- **A mystery door named "Hidden Notes" in the Library room** — that's
+  Trilium's internal `_hidden` subtree; the walk skips it explicitly
+  (library.ts).
+- **App crashes in `StaticGroup.clear` after a React remount** — Phaser's
+  `game.destroy()` is deferred to its next step, so per-scene-create event
+  handlers outlive the scene. Fix: module-level handlers that forward to
+  `BibliothecaScene.current` (see bottom of BibliothecaScene.ts). Do not
+  register bus handlers inside `create()`.
+- **`SecurityError: localStorage` in the browser test** — Playwright replays
+  `addInitScript` in every frame, including the sandboxed book iframe where
+  localStorage is inaccessible. Guard the init script with try/catch.
+- **Player can't interact with the door at the wall** — world bounds stop
+  the player ~40px short; INTERACT_RANGE (46) must exceed that. If you
+  change room size, re-check this.
+- **Browser can't reach ETAPI even though curl works** — CORS: the instance
+  must set `TRILIUM_NETWORK_CORS_ALLOW_ORIGIN` (+ methods/headers), since
+  v0.93.0. compose.yml sets `*` for the mock only.
+- **`/setup` returns "Failed to lookup view"** — expected on v0.106; the
+  setup flow is SPA-driven (see bootstrap above).
 
 ## Networking (DinD)
 
-- Spawned services publish **only within ports 31000–31099.**
+- Spawned services publish **only within ports 31000–31099.** Ports claimed
+  here: 31085 dev · 31086 preview · 31090 Trilium mock. odd-arcade owns 31080.
 - Low host ports may already belong to another service. Do not trust a `curl`
-  returning `200` — it may be someone else's app.
-- Reach published containers through the **`dind` service**, not a host or gateway IP.
-- From inside a container, `http://[IP_ADDRESS]:<port>/` is the fastest way to
-  confirm a service is serving at all.
-- **`odd-arcade` currently owns 31080.** Check what is taken before claiming a port.
+  returning `200` — it may be someone else's app. Verify by content, not code.
+- Reach published containers through the **`dind` service**, not a host or
+  gateway IP: container-to-container by compose service name, from here via
+  `http://dind:<port>`, from the host via `http://<host-ip>:<port>`.
 
 ## Safety
 
 - `/workspace` is a bind mount with **no undo** — no trash, no snapshot.
-- `git init` **before** the first destructive step, not after.
 - Commit before a move, restructure, or bulk edit.
 - **Never `rm -rf` a path you haven't listed first.** Print the target, then delete.
 
 ## Verification — prove it, don't assert it
 
 Follow the `odd-arcade` pattern: a `tools/check.sh` running real checks, all green
-before you call anything done. Planned:
-- build passes
-- dev server serves `200` on its port
-- ETAPI integration against the disposable Trilium in DinD (auth, read a note, write a note)
-- the Trilium container is torn down and recreated from scratch, proving the setup is reproducible
-- browser pass: every screen mounts, zero console errors
+before you call anything done. Implemented:
 
-`node_modules/` and screenshots are gitignored. Do not commit them.
+- `types + build` — tsc strict + vite build
+- `trilium mock from scratch` — compose down **with volume wipe**, bootstrap
+  from zero (setup → password → token), proving the setup is reproducible
+- `browser pass` — real headless Chromium against the fresh mock: world mounts,
+  vault walks, search opens a book, overview toggles, **zero console errors**
+- `etapi integration` — every endpoint above asserted live (create/read/patch/
+  delete included)
+
+`node_modules/`, `shots/` (screenshots) and `.bootstrap.env` (mock credentials)
+are gitignored. Do not commit them.
 
 ## Git
 

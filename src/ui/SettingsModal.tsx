@@ -24,8 +24,11 @@ export function SettingsModal(props: {
   onSaved: () => void;
 }): React.JSX.Element {
   const existing = getState().settings;
-  const [serverUrl, setServerUrl] = useState(existing?.serverUrl ?? "http://localhost:31090");
-  const [token, setToken] = useState(existing?.token ?? "");
+  // VITE_* vars (see .env.example) seed the fields on first run only.
+  const [serverUrl, setServerUrl] = useState(
+    existing?.serverUrl ?? import.meta.env.VITE_TRILIUM_URL ?? "http://localhost:31090",
+  );
+  const [token, setToken] = useState(existing?.token ?? import.meta.env.VITE_TRILIUM_TOKEN ?? "");
   const [password, setPassword] = useState("");
   const [rootNoteId, setRootNoteId] = useState(existing?.rootNoteId ?? DEFAULT_ROOT_NOTE_ID);
   const [error, setError] = useState<string | null>(null);

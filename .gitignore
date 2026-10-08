@@ -21,3 +21,12 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+
+# Screenshots (browser pass artifacts)
+shots/
+
+# Disposable mock credentials (never commit)
+.bootstrap.env
+
+# TypeScript incremental build state
+*.tsbuildinfo
