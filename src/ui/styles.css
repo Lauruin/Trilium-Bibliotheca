@@ -1,0 +1,355 @@
+/**
+ * Bibliotheca UI stylesheet — dark pixel-library aesthetic.
+ * Layout: HUD top bar, canvas fills the rest, hint bar bottom, modal overlays.
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #0e0d16;
+  color: #e8dcc0;
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+#root,
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The canvas host fills all remaining space; Phaser letterboxes inside it. */
+#game-host {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0e0d16;
+}
+
+#game-host canvas {
+  image-rendering: pixelated;
+}
+
+/* ------------------------------------------------------------------ HUD */
+
+.hud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #14101c;
+  border-bottom: 2px solid #2a2338;
+  z-index: 10;
+}
+
+.hud-left,
+.hud-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.brand {
+  color: #d8b868;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.crumb-sep {
+  color: #4a4a66;
+}
+
+.crumb-btn {
+  background: none;
+  border: none;
+  color: #b8a8d8;
+  cursor: pointer;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.crumb-btn:hover {
+  color: #e8dcc0;
+  text-decoration: underline;
+}
+
+.crumb-dim {
+  color: #4a4a66;
+  font-size: 12px;
+}
+
+.conn {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.conn-online { color: #8ad88a; }
+.conn-connecting { color: #d8c868; }
+.conn-offline { color: #d8a858; }
+.conn-error { color: #e87a6a; }
+.conn-disconnected { color: #6a6a86; }
+
+button {
+  background: #241e30;
+  border: 1px solid #4a3a5a;
+  color: #e8dcc0;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #2f2742;
+  border-color: #6a5a7e;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.active {
+  background: #3a2d4e;
+  border-color: #d8b868;
+  color: #f0e2c0;
+}
+
+.hintbar {
+  padding: 4px 10px;
+  background: #14101c;
+  border-top: 2px solid #2a2338;
+  color: #6a6a86;
+  font-size: 11px;
+  z-index: 10;
+}
+
+/* ---------------------------------------------------------------- modals */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 6, 14, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: #1a1424;
+  border: 2px solid #4a3a5a;
+  box-shadow: 0 0 0 4px #0e0d16, 0 12px 32px rgba(0, 0, 0, 0.6);
+  width: min(720px, 92vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2338;
+}
+
+.modal-head h2 {
+  margin: 0;
+  font-size: 14px;
+  color: #f0e2c0;
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.modal > p,
+.modal > .field,
+.modal > .error-line {
+  margin: 8px 14px;
+}
+
+/* Book popup ------------------------------------------------------------ */
+
+.book-modal {
+  width: min(760px, 94vw);
+  height: 80vh;
+}
+
+.book-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  background: #14101c;
+}
+
+.book-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #2a2018;
+}
+
+.badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border: 1px solid #4a3a5a;
+  color: #b8a8d8;
+  background: #241e30;
+}
+
+.dim-line {
+  color: #6a6a86;
+  font-size: 12px;
+}
+
+.dim-line.small {
+  font-size: 10px;
+}
+
+.error-line {
+  color: #e87a6a;
+  font-size: 12px;
+}
+
+/* Search ----------------------------------------------------------------- */
+
+.search-form {
+  display: flex;
+  gap: 6px;
+  margin: 10px 14px;
+}
+
+.search-form input {
+  flex: 1;
+  background: #241e30;
+  border: 1px solid #4a3a5a;
+  color: #e8dcc0;
+  font: inherit;
+  padding: 5px 8px;
+}
+
+.search-form input:focus {
+  outline: 1px solid #d8b868;
+}
+
+.search-results {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0 14px 8px;
+  overflow-y: auto;
+}
+
+.search-results li {
+  margin: 2px 0;
+}
+
+.search-results button {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+}
+
+/* Settings ---------------------------------------------------------------- */
+
+.settings-modal {
+  width: min(560px, 94vw);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.field span {
+  font-size: 11px;
+  color: #b8a8d8;
+}
+
+.field input {
+  background: #241e30;
+  border: 1px solid #4a3a5a;
+  color: #e8dcc0;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.field input:focus {
+  outline: 1px solid #d8b868;
+}
+
+/* Socrates ----------------------------------------------------------------- */
+
+.socrates-modal {
+  width: min(520px, 94vw);
+}
+
+.socrates-line {
+  color: #cdd3da;
+  font-size: 14px;
+}
+
+/* Toast -------------------------------------------------------------------- */
+
+.toast {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #241e30;
+  border: 1px solid #4a3a5a;
+  color: #e8dcc0;
+  padding: 6px 14px;
+  font-size: 12px;
+  z-index: 200;
+  max-width: 80vw;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+
+.toast-warn { border-color: #d8a858; color: #f0d8b0; }
+.toast-error { border-color: #e87a6a; color: #f0c0b0; }
+.toast-info { border-color: #8ad88a; }

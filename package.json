@@ -1,0 +1,27 @@
+{
+  "name": "trilium-bibliotheca",
+  "description": "Your Trilium vault as a walkable pixel-art library. Standalone React + Phaser web app talking to Trilium's ETAPI.",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite --port 31085 --strictPort",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --port 31086 --strictPort",
+    "test": "bash tools/check.sh"
+  },
+  "dependencies": {
+    "marked": "^15.0.0",
+    "phaser": "^3.90.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.0"
+  }
+}

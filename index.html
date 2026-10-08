@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bibliotheca — your Trilium vault as a library</title>
+    <!--
+      Inline critical style so the very first paint is already dark, before the
+      game canvas and React overlay mount. Everything else lives in src/ui/styles.css.
+    -->
+    <style>
+      html, body { margin: 0; padding: 0; background: #0e0d16; height: 100%; }
+      #root { height: 100%; }
+    </style>
+  </head>
+  <body>
+    <!-- React overlay root: HUD, book popup, settings, search. Sits above the canvas. -->
+    <div id="root"></div>
+    <!-- Phaser canvas host: filled programmatically by the game bootstrapper. -->
+    <div id="game-host"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
