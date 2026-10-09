@@ -86,6 +86,11 @@ Use the right hop. A `200` from the wrong one may be someone else's service.
 - Dev server: `npm run dev` → http://localhost:31085 (port pinned in vite.config.ts)
 - Build: `npm run build` (tsc + vite)
 - Full verification: `npm test` → runs `tools/check.sh`
+- **Host the app**: `docker compose up -d --build bibliotheca` →
+  http://dind:31087 (multi-stage build: node build stage → nginx serving the
+  static bundle; stateless, read-only rootfs, healthchecked)
+- Re-run the browser suite against the hosted container instead of vite:
+  `APP_URL=http://dind:31087 node tools/browser-test.js`
 - Trilium mock lifecycle: `tools/trilium-bootstrap.sh` (start/ensure token),
   `--recreate` (wipe volume + full bootstrap), `--down`
 - Seed demo content: `node tools/seed-demo.js` (idempotent)
@@ -98,6 +103,7 @@ Use the right hop. A `200` from the wrong one may be someone else's service.
 
 - 31085 — vite dev server (this project)
 - 31086 — vite preview (build check)
+- 31087 — **hosted app container** (`bibliotheca-web`, compose.yml, nginx)
 - 31090 — Trilium mock (compose.yml), published through DinD
 - (odd-arcade still owns 31080.)
 
@@ -143,6 +149,13 @@ valid-token check → password login → full setup, in that order).
 
 ## Gotchas (symptom → cause)
 
+- **nginx container `unhealthy` + `[emerg] mkdir() "/tmp/nginx/client_body"`
+  while the app serves fine** — two stacked causes: (a) nginx mkdir()s only
+  the LEAF temp dir, so a nested path like /tmp/nginx/client_body dies when
+  /tmp/nginx doesn't exist (fresh tmpfs); (b) the healthcheck targeted
+  `localhost`, which resolves to ::1 here while nginx listens IPv4 only.
+  Fixes: flat temp paths (/tmp/client_body…) in docker/nginx.conf and
+  `wget http://[IP_ADDRESS]/` in the Dockerfile HEALTHCHECK.
 - **Label created as `biblio.x` comes back as `biblio_x`** — Trilium
   normalises attribute names and strips dots. Use underscore names from the
   start (config.LABELS does).

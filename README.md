@@ -68,6 +68,22 @@ corsAllowMethods=GET,POST,PUT,PATCH,DELETE,OPTIONS
 corsAllowHeaders=Authorization,Content-Type
 ```
 
+### Hosting the app itself
+
+The app is plain static files once built, so it ships as a stateless
+container (no token inside, no volumes):
+
+```bash
+docker compose up -d --build bibliotheca   # serves on http://<host>:31087
+APP_URL=http://dind:31087 node tools/browser-test.js   # verify it hosted
+```
+
+The multi-stage build runs the strict type-check + vite build inside the
+image (a broken build fails the image build), then nginx serves the bundle
+with immutable asset caching. The container runs with a read-only rootfs;
+when pointing it at a real Trilium, add this app's origin (e.g.
+`http://<host>:31087`) to that instance's `corsAllowOrigin`.
+
 ## Verification
 
 ```bash

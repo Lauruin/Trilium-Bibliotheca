@@ -1,0 +1,12 @@
+# Keep the build context lean — the image build should not see local state.
+node_modules/
+dist/
+shots/
+.git/
+.gitignore
+*.log
+.bootstrap.env
+.env
+.env.*
+tools/browser-test.js
+tools/seed-demo.js

@@ -23,8 +23,35 @@
 # Data: named volume `trilium-mock-data` → /home/node/trilium-data, so
 # `docker compose restart` keeps test data; delete the volume for a clean
 # slate (tools/trilium-bootstrap.sh --recreate does exactly that).
+#
+# The `bibliotheca` service below is the APP ITSELF, hosted: the static
+# production bundle (multi-stage build via Dockerfile) served by nginx on
+# **31087**. It is stateless — the browser fetches Trilium directly, so this
+# container holds no token and needs no volumes. The Trilium mock's CORS
+# `*` makes the cross-origin fetch from the app's origin (any port) work;
+# on a real instance you'd allow this origin instead (see README).
+#
+# Note the read_only rootfs + tmpfs /tmp pair, and that nginx's writable
+# paths are redirected to /tmp in docker/nginx.conf — see the nginx gotcha
+# in AGENTS.md.
 
 services:
+  bibliotheca:
+    build: .
+    image: bibliotheca-web:latest
+    container_name: bibliotheca-web
+    restart: unless-stopped
+    ports:
+      - "31087:80"
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      trilium:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
   trilium:
     image: triliumnext/trilium:v0.106.0
     container_name: bibliotheca-trilium-mock

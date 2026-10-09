@@ -31,7 +31,10 @@ try {
 }
 
 const APP_PORT = 31085;
-const APP_URL = `http://localhost:${APP_PORT}`;
+// APP_URL (optional): test an already-hosted instance instead of spawning
+// the dev server. Example:
+//   APP_URL=http://dind:31087 node tools/browser-test.js   # hosted container
+const APP_URL = process.env.APP_URL ?? `http://localhost:${APP_PORT}`;
 
 // --- credentials ------------------------------------------------------------
 function loadCreds() {
@@ -108,12 +111,16 @@ async function seedVault() {
 // --- main --------------------------------------------------------------------
 let vite;
 try {
-  vite = spawn("npx", ["vite", "--port", String(APP_PORT), "--strictPort"], {
-    stdio: "ignore",
-    detached: true,
-  });
-  await waitFor(async () => (await fetch(APP_URL).catch(() => null))?.ok, "vite dev server");
-  ok(`dev server up on ${APP_URL}`);
+  if (process.env.APP_URL) {
+    ok(`testing hosted instance at ${APP_URL}`);
+  } else {
+    vite = spawn("npx", ["vite", "--port", String(APP_PORT), "--strictPort"], {
+      stdio: "ignore",
+      detached: true,
+    });
+    await waitFor(async () => (await fetch(APP_URL).catch(() => null))?.ok, "vite dev server");
+    ok(`dev server up on ${APP_URL}`);
+  }
 
   await seedVault();
 
