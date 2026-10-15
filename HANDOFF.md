@@ -1,5 +1,10 @@
 # Knowledge App — Handoff
 
+> **⚠ This document is outdated (SiYuan era, 2026-09).** Kept for context on
+> how the project evolved; the decisions worth keeping were re-homed into
+> `AGENTS.md` (current state, verified ETAPI contract) and `README.md`
+> (what Bibliotheca is today). Read those first.
+
 Status as of 2026-09-24: user is trial-running self-hosted SiYuan (can't set up Radicale/Tailscale for a few more days). Nothing built yet — planning docs only. Re-read this file first on resume, then follow the links below for whatever's relevant to the immediate task; don't re-derive anything already decided.
 
 ## Doc map

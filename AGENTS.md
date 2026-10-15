@@ -1,8 +1,14 @@
-# AGENTS.md — trilium_bibliotheca
+# AGENTS.md — Trilium-Bibliotheca (repo: Lauruin/Trilium-Bibliotheca)
 
 A bibliography tool for **Trilium Notes**. React + Phaser.
 Formerly `SiYuan-biblio-plugin` — **SiYuan is abandoned.** SiYuan assumptions
 found in this repo are stale. Trilium is the target.
+
+**Branch layout (as of 2026-10):** `main` = planning docs only (the user
+merges; we never push it). `devbranch` = integration branch — feature
+branches like `build/bibliotheca-client` land here via fast-forward push,
+the user merges into `main` when satisfied. Implementation notes below were
+written against the code now living on `devbranch`.
 
 This file is **self-contained.** Do not assume `/workspace/AGENTS.md` was loaded:
 when your cwd is inside this project, the nearest local file is the one that
