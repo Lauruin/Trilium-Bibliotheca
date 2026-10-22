@@ -22,6 +22,8 @@ run() {
 
 run "types + build" bash -c 'npx tsc -b && npx vite build >/dev/null && echo build ok'
 
+run "unit" node tools/unit-test.mjs
+
 # Disposable Trilium: recreate from a wiped volume (reproducibility proof).
 # The browser pass runs against THAT fresh instance and seeds its demo vault
 # itself; the ETAPI probe then asserts the whole contract.

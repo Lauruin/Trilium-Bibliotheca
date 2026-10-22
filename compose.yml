@@ -6,9 +6,9 @@
 #
 # Networking:
 #   - Runs in the DinD daemon (DOCKER_HOST=tcp://dind:2375).
-#   - Publishes 31090 (within the 31000–31099 window; 31080 is odd-arcade's).
-#   - From this container:   http://dind:31090
-#   - From the host/laptop:  http://<host-ip>:31090
+#   - Publishes 8080 (the app container takes 8081).
+#   - From this container:   http://dind:8080
+#   - From the host/laptop:  http://localhost:18080 (devcontainer sidecar maps 18080→8080)
 #
 # CORS (docs.triliumnotes.org → Configuration → CORS, since v0.93.0):
 #   The app fetches Trilium directly from the browser, so the mock allows
@@ -26,7 +26,7 @@
 #
 # The `bibliotheca` service below is the APP ITSELF, hosted: the static
 # production bundle (multi-stage build via Dockerfile) served by nginx on
-# **31087**. It is stateless — the browser fetches Trilium directly, so this
+# **8081**. It is stateless — the browser fetches Trilium directly, so this
 # container holds no token and needs no volumes. The Trilium mock's CORS
 # `*` makes the cross-origin fetch from the app's origin (any port) work;
 # on a real instance you'd allow this origin instead (see README).
@@ -42,7 +42,7 @@ services:
     container_name: bibliotheca-web
     restart: unless-stopped
     ports:
-      - "31087:80"
+      - "8081:80"
     read_only: true
     tmpfs:
       - /tmp
@@ -57,7 +57,7 @@ services:
     container_name: bibliotheca-trilium-mock
     restart: unless-stopped
     ports:
-      - "31090:8080"
+      - "8080:8080"
     environment:
       # CORS for the browser-based app (see note above).
       TRILIUM_NETWORK_CORS_ALLOW_ORIGIN: "*"

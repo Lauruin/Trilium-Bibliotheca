@@ -1,9 +1,10 @@
 # Environment / secrets
 .env
 .env.*
+!.env.example
 *.key
 
-# Node (SiYuan plugin / intelligence service tooling)
+# Node (web client / intelligence service tooling)
 node_modules/
 dist/
 build/
@@ -30,3 +31,8 @@ shots/
 
 # TypeScript incremental build state
 *.tsbuildinfo
+
+# Playwright browser downloads (hundreds of MB, provided by host)
+.playwright-browsers/
+.playwright-libs/
+.playwright-mcp/

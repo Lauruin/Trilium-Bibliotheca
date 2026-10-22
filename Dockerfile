@@ -20,7 +20,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 # Source (paths kept tight so future top-level files don't leak into the image).
-COPY index.html vite.config.ts tsconfig.json ./
+COPY index.html lizard3d.html vite.config.ts tsconfig.json ./
+COPY public ./public
 COPY src ./src
 
 # tsc strict check + vite build — the build FAILS on type errors, which is

@@ -1,4 +1,4 @@
-/** tools/seed-demo.js — one-off richer seed for screenshots/manual QA. Not part of check. */
+/** tools/seed-demo.js — one-off richer seed for screenshots/manual QA. Not part of check. (Bigger, deterministic vaults: tools/seed-vault.js.) */
 import { readFileSync } from "node:fs";
 
 const raw = readFileSync(".bootstrap.env", "utf8");

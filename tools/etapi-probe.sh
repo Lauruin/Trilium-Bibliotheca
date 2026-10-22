@@ -87,6 +87,29 @@ echo "== search =="
 res=$(curl -s "$TRILIUM_URL/etapi/notes?search=$STAMP" -H "$H" | grep -c '"noteId"')
 check "full-text search finds created note" 1 "$([ "$res" -ge 1 ] && echo 1 || echo 0)"
 
+echo "== world-building labels (inheritable attrs, label names, root) =="
+# An inheritable label on a parent shows up on the child with the OWNER's noteId
+# — the app must treat only labels whose noteId == the note's own id as its own.
+child=$(curl -s -X POST "$TRILIUM_URL/etapi/create-note" -H "$H" -H 'Content-Type: application/json' \
+  -d "{\"parentNoteId\":\"$note_id\",\"title\":\"$STAMP-child\",\"type\":\"text\",\"content\":\"\"}" | grep -oE '"noteId":"[A-Za-z0-9_]+"' | head -1 | cut -d'"' -f4)
+inh=$(curl -s -X POST "$TRILIUM_URL/etapi/attributes" -H "$H" -H 'Content-Type: application/json' \
+  -d "{\"noteId\":\"$note_id\",\"type\":\"label\",\"name\":\"biblio_Probe-Case\",\"value\":\"x\",\"isInheritable\":true}")
+inh_id=$(printf '%s' "$inh" | grep -oE '"attributeId":"[^"]+"' | head -1 | cut -d'"' -f4)
+echo "$inh" | grep -q '"name":"biblio_Probe_Case"' && r=1 || r=0
+check "label name: hyphen → underscore, case NOT lowercased" 1 "$r"
+child_json=$(curl -s "$TRILIUM_URL/etapi/notes/$child" -H "$H")
+owner=$(printf '%s' "$child_json" | grep -oE '"noteId":"'"$note_id"'"' | head -1)
+[ -n "$owner" ] && r=1 || r=0
+check "inheritable label appears on the child with the OWNER's noteId" 1 "$r"
+# label on the root note (wing theme of the whole library) is accepted
+rid=$(curl -s -X POST "$TRILIUM_URL/etapi/attributes" -H "$H" -H 'Content-Type: application/json' \
+  -d '{"noteId":"root","type":"label","name":"biblio_wing","value":"oak"}' | grep -oE '"attributeId":"[^"]+"' | head -1 | cut -d'"' -f4)
+[ -n "$rid" ] && r=1 || r=0
+check "label on the root note → accepted" 1 "$r"
+[ -n "$rid" ] && curl -s -o /dev/null -X DELETE "$TRILIUM_URL/etapi/attributes/$rid" -H "$H"
+[ -n "$inh_id" ] && curl -s -o /dev/null -X DELETE "$TRILIUM_URL/etapi/attributes/$inh_id" -H "$H"
+[ -n "$child" ] && curl -s -o /dev/null -X DELETE "$TRILIUM_URL/etapi/notes/$child" -H "$H"
+
 echo "== cleanup =="
 c=$(code -X DELETE "$TRILIUM_URL/etapi/notes/$note_id" -H "$H")
 check "delete note → 204" 204 "$c"

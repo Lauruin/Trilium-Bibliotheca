@@ -10,3 +10,5 @@ shots/
 .env.*
 tools/browser-test.js
 tools/seed-demo.js
+.playwright-browsers/
+.playwright-libs/

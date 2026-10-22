@@ -28,7 +28,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export DOCKER_HOST="${DOCKER_HOST:-tcp://dind:2375}"
-TRILIUM_URL="${TRILIUM_URL:-http://dind:31090}"
+TRILIUM_URL="${TRILIUM_URL:-http://dind:8080}"
 PASSWORD="${BIBLIOTHECA_TEST_PASSWORD:-biblio-test-pw}"
 ENV_FILE=".bootstrap.env"
 
@@ -52,7 +52,10 @@ if [ "$recreate" = 1 ]; then
 fi
 
 echo "[bootstrap] starting trilium (image pinned in compose.yml)"
-docker compose up -d
+# BOOTSTRAP_SERVICES=trilium starts only the mock (skips the hosted-app image
+# build). Optional; default: all services.
+# shellcheck disable=SC2086
+docker compose up -d ${BOOTSTRAP_SERVICES:-}
 
 echo -n "[bootstrap] waiting for HTTP"
 for i in $(seq 1 60); do
