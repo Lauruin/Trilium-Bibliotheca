@@ -1,0 +1,1 @@
+Bibliotheca wiki - written against the code as of 2026-10-21. Where a page and the code disagree, the code wins: fix the page (docs move with the code, see [Contributing](Contributing.md)). Agent reference: `AGENTS.md`.

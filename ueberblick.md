@@ -10,7 +10,7 @@ Bestehende Notiz-Apps (Obsidian, Notion & Co.) haben immer einen Haken: entweder
 
 ## Die Idee
 
-**Basis: eine selbstgehostete, quelloffene Wissensdatenbank** (SiYuan) — läuft komplett auf eigener Hardware, keine Abhängigkeit von fremden Servern, mit Markdown-Notizen, Verlinkungen, Ordnerstruktur und offiziellen Mobil-Apps.
+**Basis: eine selbstgehostete, quelloffene Wissensdatenbank** (Trilium Notes) — läuft komplett auf eigener Hardware, keine Abhängigkeit von fremden Servern, mit hierarchischem Notizbaum, Verlinkungen, Labels/Attributen, eigener Sync-Funktion und mobil nutzbarer Weboberfläche.
 
 **Darauf aufgesetzt: ein eigener KI-Assistenzdienst** — durchsucht die eigenen Notizen inhaltlich (nicht nur nach Stichwörtern), beantwortet Fragen anhand der eigenen Wissensbasis, und stellt einen "sokratischen" Lern-Assistenten bereit, der beim Verstehen statt nur beim Nachschlagen hilft. Läuft mit einem selbst gewählten, günstigen KI-Modell — und aus Datenschutzgründen wird noch entschieden, ob das Modell lokal auf eigener Hardware läuft oder bei einem europäischen, DSGVO-konformen Anbieter.
 
@@ -35,4 +35,4 @@ Wer nicht spielen möchte, nutzt einfach die normale, "nüchterne" Oberfläche d
 
 ## Aktueller Stand (Stand: September 2026)
 
-Reine Planungsphase, noch kein Code geschrieben. Die selbstgehostete Notiz-App wird gerade im Alltag getestet. Die technische Architektur (Backend, KI-Dienst, Kalender, Spieloberfläche, Netzwerkzugriff) ist bereits detailliert durchdacht und dokumentiert. Nächste Schritte: Testserver aufsetzen, dann zuerst den KI-Dienst bauen, danach Aufgaben/Kalender, erst danach die Spieloberfläche — bewusst in dieser Reihenfolge, damit die "langweiligen aber wichtigen" Teile zuverlässig funktionieren, bevor Zeit in die aufwendigere Spieloptik investiert wird.
+*(Hinweis, Oktober 2026: Dieser Abschnitt ist veraltet. Es gibt inzwischen eine lauffähige erste Version, "Bibliotheca" (v0.1): eine Web-App, die ein Trilium-Notizbuch als begehbare Pixel-Art-Bibliothek und als kletterbaren 3D-Baum zeigt; siehe `README.md` und den Ordner `wiki/`. Der KI-Dienst, Aufgaben/Kalender und Sokrates als echter Gesprächspartner sind noch nicht gebaut.)* Ursprünglicher Stand (September 2026): Reine Planungsphase, noch kein Code geschrieben. Die selbstgehostete Notiz-App wird gerade im Alltag getestet. Die technische Architektur (Backend, KI-Dienst, Kalender, Spieloberfläche, Netzwerkzugriff) ist bereits detailliert durchdacht und dokumentiert. Nächste Schritte: Testserver aufsetzen, dann zuerst den KI-Dienst bauen, danach Aufgaben/Kalender, erst danach die Spieloberfläche — bewusst in dieser Reihenfolge, damit die "langweiligen aber wichtigen" Teile zuverlässig funktionieren, bevor Zeit in die aufwendigere Spieloptik investiert wird.
