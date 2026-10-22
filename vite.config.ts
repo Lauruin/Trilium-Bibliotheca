@@ -1,9 +1,8 @@
 /**
  * vite.config.ts — dev/build configuration.
  *
- * Port discipline (see AGENTS.md): everything this project spawns listens in
- * the 31000–31099 window. The Trilium mock (compose.yml) takes 31090; the dev
- * server takes 31085 (both are also asserted in tools/check.sh).
+ * Port discipline (see AGENTS.md): the Trilium mock (compose.yml) takes 8080; the dev
+ * server takes 5173 (both are also asserted in tools/check.sh).
  *
  * Networking model: the app talks to Trilium *directly* from the browser
  * (no dev proxy). Cross-origin access is granted by the Trilium instance
@@ -19,10 +18,14 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: true, // listen on all interfaces, like the odd-arcade dev server
-    port: 31085,
+    port: 5173,
     strictPort: true,
   },
   build: {
+    rollupOptions: {
+      // lizard3d.html is a standalone feel-test page for the Yggdrasil/lizard idea.
+      input: { main: "index.html", lizard3d: "lizard3d.html" },
+    },
     // Phaser is large; a chunk-size warning is expected and harmless here.
     chunkSizeWarningLimit: 2000,
   },
