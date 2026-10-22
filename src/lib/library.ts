@@ -16,6 +16,8 @@
  *   - Spine thickness≈ note length. ETAPI would force a content fetch per
  *                      note to know real length, so v1 uses title length as a
  *                      cheap, deterministic proxy (documented divergence).
+ *                      (The tree view's leaf size uses real content lengths,
+ *                      measured lazily in the background: lib/leafsize.ts.)
  *
  * The tree walk: ETAPI has no subtree endpoint, so we walk note-by-note with
  * GET /notes/{id} (which returns childNoteIds + attributes). Sibling order is
@@ -23,7 +25,7 @@
  * breadth-first with caps (config.TREE_WALK) and per-note error tolerance.
  */
 
-import { LABELS, TREE_WALK } from "../config";
+import { BIBLIO_PREFIX, LABELS, TREE_WALK } from "../config";
 import type { Book, LibraryTree, NoteInfo, RoomContents, Shelf, TreeEdge } from "../types";
 import type { TriliumClient } from "./trilium/client";
 import { TriliumApiError } from "./trilium/client";
@@ -34,7 +36,8 @@ import type { EtapiNote } from "./trilium/types";
  * from shelf grouping so rooms don't fill with shelves like "iconClass".
  * Pragmatic blocklist — extend it when a new noise label shows up.
  */
-const NOISE_LABELS = new Set([
+export const NOISE_LABELS = new Set(
+  [
   "archived",
   "color",
   "cssClass",
@@ -50,7 +53,8 @@ const NOISE_LABELS = new Set([
   "shareOmitDefaultCss",
   "template",
   ...Object.values(LABELS).filter((v) => v !== LABELS.color), // our own biblio.* labels
-]);
+  ].map((name) => name.toLowerCase()), // toNoteInfo lowercases label names
+);
 
 /**
  * Walk the vault breadth-first from `rootNoteId`.
@@ -68,7 +72,8 @@ export async function walkLibraryTree(
   const notes: Record<string, NoteInfo> = {};
   const edges: TreeEdge[] = [];
   let fetched = 0;
-  let truncated = false;
+  /** Set when a note at the depth cap had children we did not fetch. */
+  let depthCapped = false;
 
   /** BFS queue; each item carries its depth so no recomputation is needed. */
   const queue: Array<{ id: string; parent: string | null; depth: number }> = [
@@ -78,7 +83,7 @@ export async function walkLibraryTree(
   // Simple promise pool over the BFS queue: pop up to POOL jobs at once,
   // refill as they finish, stop when the queue is empty or caps are hit.
   const POOL = 8;
-  while (queue.length > 0 && fetched < caps.maxNodes && !truncated) {
+  while (queue.length > 0 && fetched < caps.maxNodes) {
     const batch = queue.splice(0, POOL);
     const results = await Promise.all(
       batch.map(async ({ id, parent, depth }) => {
@@ -101,39 +106,46 @@ export async function walkLibraryTree(
     for (const r of results) {
       if (r === null) continue;
       const { n, parent, depth } = r;
+      // Record the edge before the visited check: a clone has several parents
+      // and each parent→clone edge must exist even though we fetch it once.
+      if (parent !== null) {
+        edges.push({ parentNoteId: parent, noteId: n.noteId, notePosition: 0 });
+      }
       if (notes[n.noteId] !== undefined) continue; // clone / already visited
       fetched++;
 
       const children = n.childNoteIds ?? [];
       notes[n.noteId] = toNoteInfo(n, children.length > 0);
 
-      if (parent !== null) {
-        edges.push({ parentNoteId: parent, noteId: n.noteId, notePosition: 0 });
-      }
       // Expand only up to maxDepth. A note AT the cap is still in the world
       // (as a book or door); its children simply aren't fetched. Clones can
       // loop the queue forever — the `already visited` check above stops that.
       if (depth < caps.maxDepth) {
         queue.push(...children.map((cid) => ({ id: cid, parent: n.noteId, depth: depth + 1 })));
       } else if (children.length > 0) {
-        truncated = true;
+        depthCapped = true; // only this branch stops; the walk goes on
       }
     }
   }
 
-  // If the loop ended with work left over, a cap (nodes or depth) cut the walk
-  // short. Surfaces as a HUD notice rather than a silent truncation.
-  const walkedEverything = queue.length === 0;
-
-  return { rootNoteId, notes, edges, truncated: !walkedEverything };
+  // Work left in the queue (node cap) or a depth-capped branch means the walk
+  // was cut short. Surfaces as a HUD notice rather than a silent truncation.
+  return { rootNoteId, notes, edges, truncated: depthCapped || queue.length > 0 };
 }
 
 function toNoteInfo(n: EtapiNote, hasChildren: boolean): NoteInfo {
   const labels: Record<string, string> = {};
   for (const a of n.attributes ?? []) {
-    if (a.type === "label") labels[a.name.toLowerCase()] = a.value ?? "";
+    // Own labels only: Trilium lists an inheritable label on every descendant
+    // with the OWNER's noteId; treating it as the child's own would misread
+    // (and, on write, edit the owner's attribute).
+    if (a.type === "label" && (a.noteId === undefined || a.noteId === n.noteId)) {
+      labels[a.name.toLowerCase()] = a.value ?? "";
+    }
   }
-  return { noteId: n.noteId, title: n.title, type: n.type, labels, hasChildren };
+  const info: NoteInfo = { noteId: n.noteId, title: n.title, type: n.type === "code" && /markdown/i.test(String(n.mime ?? "")) ? "markdown" : n.type, labels, hasChildren };
+  if (typeof n.blobId === "string") info.blobId = n.blobId;
+  return info;
 }
 
 /** Children of `noteId` in tree order. */
@@ -182,7 +194,7 @@ export function buildRoomContents(tree: LibraryTree, roomId: string): RoomConten
     if (!child || isRoom(tree, childId)) continue; // rooms become doors, not books
 
     const tags = Object.keys(child.labels).filter(
-      (name) => !NOISE_LABELS.has(name) && name !== LABELS.color,
+      (name) => !NOISE_LABELS.has(name) && !name.startsWith(BIBLIO_PREFIX) && name !== LABELS.color,
     );
     const book: Book = {
       noteId: child.noteId,
@@ -210,8 +222,9 @@ export function buildRoomContents(tree: LibraryTree, roomId: string): RoomConten
     // Fill in per-book spine colours: explicit #color, else the shelf colour.
     books: entry.books.map((b) => ({ ...b, color: b.color || entry.color || stableColor(tag) })),
   }));
+  const deskColor = stableColor("desk");
   desk.forEach((b) => {
-    if (!b.color) b.color = stableColor("desk");
+    if (!b.color) b.color = deskColor;
   });
 
   const doors = childIdsOf(tree, roomId)
@@ -223,6 +236,7 @@ export function buildRoomContents(tree: LibraryTree, roomId: string): RoomConten
     title: roomId === tree.rootNoteId ? "Library" : note.title,
     shelves,
     desk,
+    deskColor,
     doors,
     parentNoteId: parentEdge?.parentNoteId ?? null,
   };

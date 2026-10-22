@@ -2,7 +2,7 @@
  * lib/layout.ts — where rooms sit in the world, and how that survives.
  *
  * "Layout is data, not a hand-authored map" (game-ui.md): each room's grid
- * cell is stored ON the room's own note as two labels (`biblio.x`, `biblio.y`),
+ * cell is stored ON the room's own note as two labels (`biblio_x`, `biblio_y`),
  * so it is synced by whatever already syncs Trilium and travels with the note
  * on rename/move. There is no sidecar file to go stale (the debate in
  * persona-debate.md rejected a sidecar for exactly that reason).
@@ -23,7 +23,7 @@
 import { LABELS } from "../config";
 import type { LibraryTree, RoomPlacement } from "../types";
 import type { TriliumClient } from "./trilium/client";
-import type { EtapiAttribute } from "./trilium/types";
+import { setLabel } from "./labels";
 
 /**
  * Compute the placement map for all rooms in the tree.
@@ -58,7 +58,6 @@ export function computePlacements(
   // Pass 2 — auto-place the rest in reading order: rightward first (6 per
   // row), then wrap downward. Deterministic, and new rooms grow in the
   // direction a side-scroller world reads naturally.
-  const auto = autoCells();
   for (const id of roomIds) {
     if (placements.has(id)) continue;
     if (id === tree.rootNoteId) {
@@ -69,7 +68,9 @@ export function computePlacements(
       }
       continue;
     }
-    for (const [x, y] of auto) {
+    // A fresh generator per room: `break` closes a generator, so sharing one
+    // across rooms would stop placing anything after the first auto-placed room.
+    for (const [x, y] of autoCells()) {
       if (!occupied.has(cell(x, y))) {
         placements.set(id, { noteId: id, x, y, manual: false });
         occupied.add(cell(x, y));
@@ -89,7 +90,7 @@ function* autoCells(): Generator<[number, number]> {
 }
 
 /**
- * Persist a room position to Trilium as biblio.x / biblio.y labels.
+ * Persist a room position to Trilium as biblio_x / biblio_y labels.
  * Re-fetches the note first: attribute ids are the write handle, and the
  * list we walked may be stale (edits from another device, our own earlier
  * writes in this session).
@@ -102,21 +103,9 @@ export async function saveRoomPosition(
   x: number,
   y: number,
 ): Promise<void> {
-  const note = await client.getNote(noteId);
-  const attrs = note.attributes ?? [];
-  for (const [name, value] of [
-    [LABELS.roomX, String(x)],
-    [LABELS.roomY, String(y)],
-  ] as const) {
-    const existing: EtapiAttribute | undefined = attrs.find(
-      (a) => a.type === "label" && a.name === name,
-    );
-    if (existing) {
-      if (existing.value !== value) {
-        await client.patchAttribute(existing.attributeId, { value });
-      }
-    } else {
-      await client.createAttribute({ noteId, type: "label", name, value });
-    }
-  }
+  // setLabel edits OWN labels only (an inheritable biblio_x on an ancestor must
+  // never be patched through this note), matches names case-insensitively and
+  // re-fetches the note first.
+  await setLabel(client, noteId, LABELS.roomX, String(x));
+  await setLabel(client, noteId, LABELS.roomY, String(y));
 }

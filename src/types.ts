@@ -20,13 +20,16 @@ export interface NoteInfo {
   /** Trilium note type: "text" | "code" | "markdown" | "canvas" | ... */
   type: string;
   /**
-   * Labels, lowercased name → value ("" when the label has no value).
-   * Includes inherited labels only if Trilium included them; we treat the
-   * map as "what this note itself carries".
+   * OWN labels only, lowercased name → value ("" when the label has no value).
+   * Trilium also lists inheritable labels of ancestors on a note (with the
+   * owner's noteId); library.ts#toNoteInfo drops those, so this map is exactly
+   * "what this note itself carries".
    */
   labels: Record<string, string>;
   /** True when the note has at least one child branch (i.e. it's a folder). */
   hasChildren: boolean;
+  /** Trilium's content hash id; changes when the content does (leaf size cache key). */
+  blobId?: string;
 }
 
 /**
@@ -36,7 +39,7 @@ export interface NoteInfo {
 export interface TreeEdge {
   parentNoteId: string;
   noteId: string;
-  /** Sibling order as reported by Trilium (10, 20, 30...). */
+  /** Always 0 as filled by the walk: sibling order is the order of the edges (= Trilium's tree order, from childNoteIds). */
   notePosition: number;
 }
 
@@ -106,6 +109,8 @@ export interface RoomContents {
   title: string;
   shelves: Shelf[];
   desk: Scroll[];
+  /** Spine colour of the "unfiled" bookcase that holds the desk notes. */
+  deskColor: string;
   doors: Door[];
   /** The parent room, for the exit door. Null for the library root room. */
   parentNoteId: string | null;
@@ -113,7 +118,7 @@ export interface RoomContents {
 
 /** Connection settings, edited in the settings modal, persisted locally. */
 export interface Settings {
-  /** Trilium base URL, e.g. "http://localhost:31090" (no trailing /etapi). */
+  /** Trilium base URL, e.g. "http://localhost:8080" (no trailing /etapi). */
   serverUrl: string;
   /** ETAPI token. Stored only in this browser's localStorage — see README. */
   token: string;

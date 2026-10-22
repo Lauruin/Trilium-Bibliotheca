@@ -35,9 +35,13 @@ export interface GameEvents {
   "book:open": { noteId: string };
   "search:open": undefined;
   "socrates:open": undefined;
+  /** Sent after every room draw: how many wall slots exist and how the floor pieces fit. */
+  "build:slots": { roomId: string; wallSlots: number; floorFit: number; floorHidden: number };
+  /** The folder (door) the player is standing at, or null — drives the description plaque. */
+  "focus:note": { noteId: string | null };
   "notice": { level: "info" | "warn" | "error"; text: string };
   /**
-   * Overview-mode drag result. React persists it (biblio.x/biblio.y labels);
+   * Overview-mode drag result. React persists it (biblio_x/biblio_y labels);
    * the scene has already applied the move to its own placement map, so no
    * rebuild is needed — a failed persist only means the change is lost on
    * the next full reload, and React surfaces that as a notice.
@@ -45,6 +49,15 @@ export interface GameEvents {
   "layout:move": { noteId: string; x: number; y: number };
 
   // React → Phaser
+  /**
+   * Build mode: draw the current room as if these labels were set (null value =
+   * label absent; null payload = clear the preview) WITHOUT saving anything.
+   */
+  "build:preview": { labels: Record<string, string | null> | null };
+  /** Re-draw the current room from the (already patched) tree — after an applied or undone edit. */
+  "scene:redraw": undefined;
+  /** On-screen touch control pressed/released (phones have no keyboard). */
+  "input:touch": { action: "left" | "right" | "jump" | "interact" | "up"; down: boolean };
   /** Hand the scene its world (initial load and after settings/refresh). */
   "scene:load-world": LoadWorldPayload;
   /** Navigate to a room (breadcrumb click, overview click). */

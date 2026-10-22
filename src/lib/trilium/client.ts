@@ -49,7 +49,7 @@ export class TriliumApiError extends Error {
 }
 
 export interface TriliumClientOptions {
-  /** Trilium base URL without /etapi, e.g. "http://localhost:31090". */
+  /** Trilium base URL without /etapi, e.g. "http://localhost:8080". */
   baseUrl: string;
   /** ETAPI token. Omitted only for login() itself. */
   token?: string;
@@ -67,7 +67,7 @@ export class TriliumClient {
     this.opts = { ...this.opts, ...opts };
   }
 
-  /** Base of all endpoint paths, e.g. "http://localhost:31090/etapi". */
+  /** Base of all endpoint paths, e.g. "http://localhost:8080/etapi". */
   get etapiBase(): string {
     return `${this.opts.baseUrl.replace(/\/+$/, "")}/etapi`;
   }
@@ -78,8 +78,15 @@ export class TriliumClient {
    * TriliumApiError. Never throws anything else.
    */
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
+    const res = await this.fetchOk(path, init);
+    if (res.status === 204) return undefined as T;
+    return (await res.json()) as T;
+  }
+
+  /** fetch + auth header + error normalisation; resolves only for 2xx. */
+  private async fetchOk(path: string, init?: RequestInit): Promise<Response> {
     const headers = new Headers(init?.headers);
-    headers.set("Accept", "application/json");
+    if (!headers.has("Accept")) headers.set("Accept", "application/json");
     if (this.opts.token !== undefined) headers.set("Authorization", this.opts.token);
     if (init?.body !== undefined && !headers.has("Content-Type")) {
       headers.set("Content-Type", "application/json");
@@ -109,8 +116,7 @@ export class TriliumClient {
       }
       throw new TriliumApiError(res.status, code, message);
     }
-    if (res.status === 204) return undefined as T;
-    return (await res.json()) as T;
+    return res;
   }
 
   // ------------------------------------------------------------------
@@ -150,20 +156,9 @@ export class TriliumClient {
    * callers should not use this for image/file notes (v1 limitation).
    */
   async getNoteContent(noteId: string): Promise<string> {
-    const res = await fetch(
-      `${this.etapiBase}/notes/${encodeURIComponent(noteId)}/content`,
-      { headers: { Authorization: this.opts.token ?? "" } },
-    );
-    if (!res.ok) {
-      let code = "UNKNOWN";
-      try {
-        const body = (await res.json()) as EtapiError;
-        code = body.code ?? code;
-      } catch {
-        /* ignore */
-      }
-      throw new TriliumApiError(res.status, code, res.statusText);
-    }
+    const res = await this.fetchOk(`/notes/${encodeURIComponent(noteId)}/content`, {
+      headers: { Accept: "*/*" },
+    });
     return res.text();
   }
 

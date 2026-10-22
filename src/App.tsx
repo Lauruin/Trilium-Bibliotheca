@@ -8,23 +8,30 @@
  *   2. Settings are loaded from localStorage (cache.ts). None → settings modal.
  *   3. With settings: refresh() — probe app-info, walk the tree, compute
  *      placements, hand everything to the scene via `scene:load-world`.
- *   4. On failure: fall back to the cached snapshot (offline mode) or ask for
- *      settings again (auth error).
+ *   4. On failure: fall back to the cached snapshot (offline mode) or, on an
+ *      auth error, show a toast asking the user to check the settings.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_ROOT_NOTE_ID } from "./config";
 import { startGame } from "./game/game";
 import { bus } from "./game/events";
+import { sharedText } from "./lib/capture";
 import { loadSettings, loadTreeCache, saveSettings, saveTreeCache } from "./lib/cache";
 import { computePlacements, saveRoomPosition } from "./lib/layout";
 import { walkLibraryTree } from "./lib/library";
 import { TriliumApiError } from "./lib/trilium/client";
 import { getClient, getState, notify, resetClient, setState, useAppStore } from "./state/store";
 import type { Settings } from "./types";
+import { CaptureModal } from "./ui/CaptureModal";
 import { BookPopup } from "./ui/BookPopup";
 import { Hud } from "./ui/Hud";
+import { RoomPlaque } from "./ui/RoomPlaque";
+import { TreeView } from "./ui/TreeView";
+import { BuildPanel } from "./ui/BuildPanel";
+import { redoEdit, undoEdit } from "./lib/worldedit";
 import { SearchPanel } from "./ui/SearchPanel";
+import { TouchControls } from "./ui/TouchControls";
 import { SettingsModal } from "./ui/SettingsModal";
 import { SocratesDialog } from "./ui/SocratesDialog";
 
@@ -34,6 +41,12 @@ export default function App(): React.JSX.Element {
   const [searchOpen, setSearchOpen] = useState(false);
   const [socratesOpen, setSocratesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [buildOpen, setBuildOpen] = useState(false);
+  /** "library" = the walkable rooms (Phaser); "tree" = the Yggdrasil view (three.js). */
+  const [view, setView] = useState<"library" | "tree">("library");
+  /** Text handed over by the OS share sheet (PWA share target), consumed once. */
+  const [shared, setShared] = useState<string | null>(null);
 
   // --- Phaser boot (once) ---------------------------------------------------
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -45,9 +58,15 @@ export default function App(): React.JSX.Element {
 
   // --- first run / boot: hydrate settings, open modal if none ---------------
   useEffect(() => {
+    const incoming = sharedText(window.location.search);
+    if (incoming !== null) {
+      window.history.replaceState(null, "", window.location.pathname); // don't re-capture on reload
+      setShared(incoming);
+    }
     const s = loadSettings();
     if (s) {
       setState({ settings: s, conn: "connecting" });
+      if (incoming !== null) setCaptureOpen(true);
     } else {
       setSettingsOpen(true);
     }
@@ -99,10 +118,69 @@ export default function App(): React.JSX.Element {
   }, []);
 
   // --- pause the scene while any modal is open --------------------------------
-  const modalOpen = book !== null || searchOpen || socratesOpen || settingsOpen;
+  const modalOpen = book !== null || searchOpen || socratesOpen || settingsOpen || captureOpen || buildOpen;
   useEffect(() => {
-    bus.emit("scene:paused", { on: modalOpen });
+    bus.emit("scene:paused", { on: modalOpen || view === "tree" });
+  }, [modalOpen, view]);
+
+  // Phaser's FIT scaling needs a nudge after its host was hidden.
+  useEffect(() => {
+    if (view === "library") window.dispatchEvent(new Event("resize"));
+  }, [view]);
+
+  // --- "c" opens quick capture (ignored while typing or with a modal open) ----
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "c" || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (getState().settings && !modalOpen) {
+        e.preventDefault();
+        setCaptureOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [modalOpen]);
+
+  // --- "b" opens build mode; z / shift+z / ctrl+z undo / redo world edits -----
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (modalOpen || e.altKey) return;
+      const st = getState();
+      const k = e.key.toLowerCase();
+      if (k === "t" && !e.ctrlKey && !e.metaKey && st.tree) {
+        e.preventDefault();
+        setView((v) => (v === "tree" ? "library" : "tree"));
+      } else if (k === "b" && !e.ctrlKey && !e.metaKey && st.tree && st.path.length > 0 && !st.overview && view === "library") {
+        e.preventDefault();
+        setBuildOpen(true);
+      } else if (k === "z") {
+        if (e.repeat) return; // holding Z must not queue a pile of undos
+        const client = getClient();
+        if (!client || !st.tree) return;
+        e.preventDefault();
+        const run = e.shiftKey ? redoEdit : undoEdit;
+        run(client, st.tree)
+          .then((edit) => {
+            if (edit) notify("info", `${e.shiftKey ? "Redid" : "Undid"}: ${edit.label}`);
+          })
+          .catch((err) => notify("error", `Could not ${e.shiftKey ? "redo" : "undo"}: ${errorMessage(err)}`));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modalOpen, view]);
+
+  // --- another dialog opening (HUD stays clickable) ends build mode, dropping its preview ---
+  useEffect(() => {
+    if (buildOpen && (book !== null || searchOpen || socratesOpen || settingsOpen || captureOpen)) {
+      bus.emit("build:preview", { labels: null });
+      setBuildOpen(false);
+    }
+  }, [buildOpen, book, searchOpen, socratesOpen, settingsOpen, captureOpen]);
 
   // --- toast auto-hide ---------------------------------------------------------
   useEffect(() => {
@@ -120,25 +198,51 @@ export default function App(): React.JSX.Element {
   }, []);
 
   return (
-    <div className="app">
+    <div className={`app${buildOpen ? " building" : ""}`}>
       <Hud
         onOpenSearch={() => setSearchOpen(true)}
+        onOpenCapture={() => setCaptureOpen(true)}
+        onOpenBuild={() => state.tree && state.path.length > 0 && !state.overview && setBuildOpen(true)}
+        view={view}
+        onToggleView={() => setView((v) => (v === "tree" ? "library" : "tree"))}
         onToggleOverview={() =>
           bus.emit("scene:overview", { on: !getState().overview })
         }
         onRefresh={() => void refresh()}
         onOpenSettings={() => setSettingsOpen(true)}
       />
-      <div ref={hostRef} id="game-host" />
+      <div ref={hostRef} id="game-host" style={view === "tree" ? { display: "none" } : undefined} />
+      {view === "tree" && <TreeView enabled={!modalOpen} onOpenNote={(id) => setBook({ noteId: id })} />}
+      {view === "library" && <TouchControls />}
+      {view === "library" && <RoomPlaque onOpen={(id) => setBook({ noteId: id })} />}
       {book !== null && (
-        <BookPopup noteId={book.noteId} onClose={() => setBook(null)} />
+        <BookPopup key={book.noteId} noteId={book.noteId} onClose={() => setBook(null)} />
       )}
       {searchOpen && (
         <SearchPanel onClose={() => setSearchOpen(false)} onOpenNote={(id) => setBook({ noteId: id })} />
       )}
+      {captureOpen && (
+        <CaptureModal
+          initialText={shared ?? undefined}
+          onClose={(captured) => {
+            setCaptureOpen(false);
+            setShared(null);
+            if (captured > 0) {
+              notify("info", `${captured} note${captured > 1 ? "s" : ""} captured to Inbox.`);
+              void refresh(); // pick up the new notes (and the Inbox room on first use)
+            }
+          }}
+        />
+      )}
+      {buildOpen && state.tree && state.path.length > 0 && (
+        <BuildPanel key={state.path[state.path.length - 1]} roomId={state.path[state.path.length - 1]} onClose={() => setBuildOpen(false)} />
+      )}
       {socratesOpen && <SocratesDialog onClose={() => setSocratesOpen(false)} />}
       {settingsOpen && (
-        <SettingsModal onClose={closeSettings} onSaved={() => setSettingsOpen(false)} />
+        <SettingsModal onClose={closeSettings} onSaved={() => {
+            setSettingsOpen(false);
+            if (shared !== null) setCaptureOpen(true); // first run via share sheet
+          }} />
       )}
       {state.notice && <div className={`toast toast-${state.notice.level}`}>{state.notice.text}</div>}
     </div>
@@ -149,7 +253,7 @@ export default function App(): React.JSX.Element {
 // Orchestration helpers
 // ---------------------------------------------------------------------------
 
-/** React → Trilium: persist an overview drag as biblio.x/biblio.y labels. */
+/** React → Trilium: persist an overview drag as biblio_x/biblio_y labels. */
 async function persistLayout(noteId: string, x: number, y: number): Promise<void> {
   const client = getClient();
   if (!client) return;

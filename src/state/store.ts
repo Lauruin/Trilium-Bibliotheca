@@ -3,7 +3,7 @@
  *
  * React needs one source of truth outside the game; the scene needs the same
  * data. This module is that truth: a hand-rolled observable (no Redux/Zustand
- * — the state is four fields and a map) consumed via useSyncExternalStore.
+ * — the state is a handful of fields) consumed via useSyncExternalStore.
  *
  * The TriliumClient lives here too: one client for the whole app, recreated
  * when settings change. It is passed around explicitly, never imported from

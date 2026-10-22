@@ -26,7 +26,7 @@ export function SettingsModal(props: {
   const existing = getState().settings;
   // VITE_* vars (see .env.example) seed the fields on first run only.
   const [serverUrl, setServerUrl] = useState(
-    existing?.serverUrl ?? import.meta.env.VITE_TRILIUM_URL ?? "http://localhost:31090",
+    existing?.serverUrl ?? import.meta.env.VITE_TRILIUM_URL ?? "http://localhost:8080",
   );
   const [token, setToken] = useState(existing?.token ?? import.meta.env.VITE_TRILIUM_TOKEN ?? "");
   const [password, setPassword] = useState("");
@@ -78,7 +78,7 @@ export function SettingsModal(props: {
           <input
             value={serverUrl}
             onChange={(e) => setServerUrl(e.target.value)}
-            placeholder="http://localhost:31090"
+            placeholder="http://localhost:8080"
           />
         </label>
         <label className="field">

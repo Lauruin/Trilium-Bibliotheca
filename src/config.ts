@@ -28,7 +28,58 @@ export const LABELS = {
    * colour name or hex). NOT written by us — we only read it for spine colour.
    */
   color: "color",
+  /** Marks the note that quick capture files new notes under (the "inbox"). */
+  inbox: "biblio_inbox",
+  // --- world building (docs: knowledge-planning/worldediting-plan.md, Part 2) ---
+  // All live on ROOM notes, are never `isInheritable` (wings are resolved in the
+  // app), and hold slugs/CSV — see src/game/themes.ts for the value sets.
+  /** Look of this room only: a theme slug (oak, midnight, ember, …). */
+  theme: "biblio_theme",
+  /** Look of this room AND its sub-rooms (nearest ancestor wins). */
+  wing: "biblio_wing",
+  /** Wall decor per 96px slot, CSV: window,painting,-,auto,banner. */
+  wall: "biblio_wall",
+  /** Floor furniture left→right after the last bookcase, CSV. */
+  furniture: "biblio_furniture",
+  /** Rug style: crimson | moss | navy | none. */
+  rug: "biblio_rug",
+  /** Bookcase finish for every case in the room: oak | walnut | ebony | whitewash. */
+  bookcase: "biblio_case",
+  /** Extra empty wall to decorate: integer 0–4, each adds one 96px wall slot. */
+  span: "biblio_span",
+  /** Optional leaf style override on a note (tree view): broad|needle|maple|blossom|fruit. */
+  leaf: "biblio_leaf",
+  // --- tree view: per-folder branch properties (src/tree/layout.ts, PROP_LABELS). Own labels of the FOLDER note,
+  // numbers as strings; absent / invalid = the calculated value. Out-of-range numbers are clamped, garbage is ignored.
+  /** Tree species of a folder (oak, birch, maple, pine, ...; tree/species.ts), case-insensitive. Inherits DOWN to sub-folders (they may override). */
+  species: "biblio_species",
+  /** Branch length in px (the whole centreline). */
+  branchLength: "biblio_blen",
+  /** Branch thickness: start radius in px. */
+  branchThickness: "biblio_bthick",
+  /** Branch taper: end radius / start radius, 0.2..1. */
+  branchTaper: "biblio_btaper",
+  /** Rotation around the parent ("side", stored as `spin`; the old name was "spiral"/azimuth): degrees around the parent's axis where the branch leaves,
+   *  0 = the parent's top (for a tree trunk: the direction it leans, 0 = +z, 90 = +x). Wraps at 360. */
+  branchSpin: "biblio_bspin",
+  /** Pitch: degrees off the parent's direction (a trunk: off the hub's vertical). */
+  branchPitch: "biblio_bpitch",
+  /** Attach point along the parent, 0..1 of its length (ignored for tree trunks: they start at the hub's end / in the ground). */
+  branchAttach: "biblio_bat",
+  /** Bend: -1 droops .. +1 lifts the branch. */
+  branchBend: "biblio_bbend",
+  /** Wave amplitude: sideways swing of the centreline as a FRACTION of the branch's length (0..0.3). */
+  branchWave: "biblio_bwave",
+  /** Wave frequency: cycles along the branch (0.25..12). */
+  branchWaveFreq: "biblio_bwfreq",
+  /** Wave shape: none | sine | zigzag | sawtooth | helix | sbend | noise (case-insensitive). */
+  branchWaveFn: "biblio_bwfn",
+  /** Leaf (note) placement on its branch: `s,th` = fraction 0..1 along the branch, degrees around it (0 = top). */
+  leafAt: "biblio_lat",
 } as const;
+
+/** Prefix of every label this app owns; such labels never become shelves. */
+export const BIBLIO_PREFIX = "biblio_";
 
 /**
  * Which note the library hangs from. v1 supports one "library" (one root
@@ -42,8 +93,9 @@ export const DEFAULT_ROOT_NOTE_ID = "root";
  * Hard caps for the initial tree walk. ETAPI has no "get subtree" endpoint,
  * so the world is built by walking GET /notes/{id} recursively. The caps keep
  * a huge vault from stalling the first load; hitting a cap degrades
- * gracefully (deeper rooms still exist as doors and are fetched on demand
- * when entered). See library.ts.
+ * gracefully: notes beyond the node cap are simply absent (there is no lazy
+ * fetch on entering a room), a note AT the depth cap is kept but its children
+ * are not fetched, and `tree.truncated` shows a toast. See library.ts.
  */
 export const TREE_WALK = {
   maxNodes: 400,
@@ -53,7 +105,9 @@ export const TREE_WALK = {
 /** localStorage keys. Versioned so a format change invalidates old data. */
 export const STORAGE = {
   settings: "biblio.v1.settings",
-  treeCache: "biblio.v1.treeCache",
+  reader: "biblio.v1.reader",
+  treeCache: "biblio.v2.treeCache", // v2: labels are own-only (inherited ones dropped)
+  leafSizes: "bibliotheca.leafsizes.v1", // noteId → {blob, len}: content lengths for leaf sizes (numbers only)
 } as const;
 
 /**
@@ -68,4 +122,4 @@ export const NPC = {
 } as const;
 
 /** Display hints for the player, surfaced by the HUD. */
-export const CONTROLS_HINT = "←→/AD move · Space/W jump · E/Enter interact · O overview";
+export const CONTROLS_HINT = "←→/AD move · Space/W jump · E/Enter interact · O overview · Q up · C capture · B build · Z undo";

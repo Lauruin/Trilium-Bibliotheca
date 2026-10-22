@@ -16,3 +16,10 @@ createRoot(rootEl).render(
     <App />
   </StrictMode>,
 );
+// Installable PWA (enables the share target). Production only: a worker under
+// the dev server would just get in the way of HMR.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  void navigator.serviceWorker.register("/sw.js").catch((err) => {
+    console.warn("[pwa] service worker registration failed:", err);
+  });
+}

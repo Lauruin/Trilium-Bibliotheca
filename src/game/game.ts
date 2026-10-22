@@ -5,7 +5,7 @@
  * destroys it on unmount. Everything crossing the boundary goes through the
  * EventBus (events.ts), never through direct references.
  *
- * Scale: fixed retro resolution (384×240), scaled to fit the host element —
+ * Scale: fixed retro resolution (480×270), scaled to fit the host element —
  * crisp pixels via pixelArt (nearest-neighbour upscaling), letterboxed when
  * the window aspect doesn't match.
  */

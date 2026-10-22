@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bibliotheca — Yggdrasil prototype (3D)</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0e0d16; overflow: hidden; font: 13px ui-monospace, monospace; color: #e8dcc0; }
+      #view { position: fixed; inset: 0; }
+      #hud { position: fixed; left: 10px; top: 8px; background: #14101cb0; padding: 6px 10px; line-height: 1.5; pointer-events: none; }
+      #grip { position: fixed; left: 50%; bottom: 24px; width: 220px; height: 10px; margin-left: -110px; background: #0008; border: 1px solid #fff4; display: none; }
+      #grip i { display: block; height: 100%; background: #ffe080; }
+    </style>
+  </head>
+  <body>
+    <div id="view"></div>
+    <div id="hud"></div>
+    <div id="grip"><i></i></div>
+    <script type="module" src="/src/tree/proto.ts"></script>
+  </body>
+</html>

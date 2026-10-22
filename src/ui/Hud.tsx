@@ -18,6 +18,10 @@ const CONN_LABEL: Record<string, string> = {
 
 export function Hud(props: {
   onOpenSearch: () => void;
+  onOpenCapture: () => void;
+  onOpenBuild: () => void;
+  view: "library" | "tree";
+  onToggleView: () => void;
   onToggleOverview: () => void;
   onRefresh: () => void;
   onOpenSettings: () => void;
@@ -50,16 +54,29 @@ export function Hud(props: {
           <span className={`conn conn-${state.conn}`} title={CONN_LABEL[state.conn]}>
             ● {CONN_LABEL[state.conn]}
           </span>
+          <button onClick={props.onOpenCapture} title="Quick capture a thought (C)">
+            capture
+          </button>
+          <button onClick={props.onToggleView} className={props.view === "tree" ? "active" : ""} title="Switch between the library rooms and the Yggdrasil tree (T)">
+            {props.view === "tree" ? "library" : "tree"}
+          </button>
+          {props.view === "library" && (
+            <button onClick={props.onOpenBuild} title="Build mode: change this room's look (B)">
+              build
+            </button>
+          )}
           <button onClick={props.onOpenSearch} title="Search the vault (the wisp)">
             search
           </button>
+          {props.view === "library" && (
           <button
-            onClick={props.onToggleOverview}
-            className={getState().overview ? "active" : ""}
-            title="Overview: drag rooms to re-arrange (O)"
-          >
-            {state.overview ? "exit overview" : "overview"}
-          </button>
+              onClick={props.onToggleOverview}
+              className={getState().overview ? "active" : ""}
+              title="Overview: drag rooms to re-arrange (O)"
+            >
+              {state.overview ? "exit overview" : "overview"}
+            </button>
+          )}
           <button onClick={props.onRefresh} title="Re-walk the vault">
             refresh
           </button>
@@ -68,11 +85,11 @@ export function Hud(props: {
           </button>
         </div>
       </header>
-      <footer className="hintbar">
+      {props.view === "library" && <footer className="hintbar">
         {state.overview
-          ? "drag rooms to re-arrange · click a room to enter it · O to exit"
+          ? "drag rooms to re-arrange · click a room to enter it · arrows/wheel to pan · O to exit"
           : CONTROLS_HINT}
-      </footer>
+      </footer>}
     </>
   );
 }
