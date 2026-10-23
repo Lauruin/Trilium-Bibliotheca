@@ -70,6 +70,19 @@ async function waitFor(fn, what, timeoutMs = 20000) {
   }
 }
 
+
+// Click a reader paper button and make sure it took: in the full headless Chrome an input event right after the reader's iframe was
+// swapped is sometimes never delivered to the page (seen in a DOM event log: no mousedown at all), so retry until the paper is active.
+async function pickPaper(page, label, tries = 5) {
+  for (let i = 0; i < tries; i++) {
+    await page.getByRole("button", { name: label, exact: true }).click();
+    const active = await page.locator(".paper-btn.active").first().innerText({ timeout: 2000 }).catch(() => "");
+    if (active.trim() === label) return;
+    await page.waitForTimeout(300);
+  }
+  throw new Error(`could not select the "${label}" paper`);
+}
+
 // --- seed the vault (idempotent: skip when the demo room already exists) ----
 async function seedVault() {
   const headers = { Authorization: TRILIUM_TOKEN, "Content-Type": "application/json" };
@@ -250,11 +263,16 @@ try {
     ok("reader: back button returns to the previous note");
     await page.getByRole("button", { name: "A+" }).click();
     await page.getByRole("button", { name: "Aa" }).click();
-    await page.getByRole("button", { name: "Night" }).click();
+    await pickPaper(page, "Night");
     await page.waitForFunction(() => document.querySelector("iframe.book-frame")?.getAttribute("srcdoc")?.includes("#1c1a24"), { timeout: 10000 }).catch(() => {});
     const styled = await page.locator("iframe.book-frame").getAttribute("srcdoc");
     if (styled?.includes("font-size: 21px") && styled.includes("#1c1a24")) ok("reader: text size + paper preferences applied");
-    else fail("reader prefs not reflected in the document");
+    else {
+      await page.screenshot({ path: "shots/debug-prefs.png" });
+      const active = await page.locator(".paper-btn.active").allInnerTexts();
+      const stored = await page.evaluate(() => localStorage.getItem("biblio.v1.reader"));
+      fail(`reader prefs not reflected in the document (sizes ${JSON.stringify(styled?.match(/font-size: \d+px/g)?.slice(0, 3))}, night page ${styled?.includes("#1c1a24")}, active paper ${active}, stored ${stored})`);
+    }
     // a script injected into a note must not run (CSP): the frame has no way to alter the parent
     const csp = styled?.includes("script-src 'nonce-");
     if (csp) ok("reader: CSP restricts scripts to our nonce");
@@ -262,6 +280,114 @@ try {
     await page.getByRole("button", { name: "✕" }).click();
   } finally {
     for (const id of [aId, bId]) await fetch(`${TRILIUM_URL}/etapi/notes/${id}`, { method: "DELETE", headers: { Authorization: TRILIUM_TOKEN } });
+  }
+
+  // 2d. Reader: image / PDF / file notes, a picture embedded through an ATTACHMENT, outline + find, the leaf papers.
+  {
+    const PNG1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    const PDF1 = Buffer.from("%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
+    const mkBinary = async (title, type, mime, bytes) => {
+      const n = (await (await fetch(`${TRILIUM_URL}/etapi/create-note`, { method: "POST", headers: H, body: JSON.stringify({ parentNoteId: "root", title, type, mime, content: "" }) })).json()).note.noteId;
+      await fetch(`${TRILIUM_URL}/etapi/notes/${n}/content`, { method: "PUT", headers: { Authorization: TRILIUM_TOKEN, "Content-Type": "application/octet-stream" }, body: bytes });
+      return n;
+    };
+    const openByTitle = async (title) => {
+      await page.getByRole("button", { name: "search" }).click();
+      await page.fill(".search-form input", title);
+      await page.locator(".search-form button[type=submit]").click();
+      await page.waitForSelector(".search-results li button", { timeout: 10000 });
+      await page.locator(".search-results li button").first().click();
+      await page.getByRole("heading", { name: title }).waitFor({ timeout: 10000 });
+    };
+    const made = [];
+    try {
+      const pngId = await mkBinary(`mediaPng${tag}`, "image", "image/png", PNG1);
+      made.push(pngId, await mkBinary(`mediaPdf${tag}`, "file", "application/pdf", PDF1));
+      made.push(await mkBinary(`mediaSniff${tag}`, "file", "application/octet-stream", PNG1)); // a PNG hiding in a generic file note
+      made.push(await mkBinary(`mediaTxt${tag}`, "file", "text/plain", Buffer.from("plain text file body")));
+      made.push(await mkBinary(`mediaZip${tag}`, "file", "application/zip", Buffer.from([0x50, 0x4b, 3, 4, 0, 1, 2, 3])));
+      const richId = await mkNote(`mediaRich${tag}`, "<p>placeholder</p>");
+      made.push(richId);
+      const att = await (await fetch(`${TRILIUM_URL}/etapi/attachments`, { method: "POST", headers: H, body: JSON.stringify({ ownerId: richId, role: "image", mime: "image/png", title: "pic.png", content: "" }) })).json();
+      await fetch(`${TRILIUM_URL}/etapi/attachments/${att.attachmentId}/content`, { method: "PUT", headers: { Authorization: TRILIUM_TOKEN, "Content-Type": "application/octet-stream" }, body: PNG1 });
+      await fetch(`${TRILIUM_URL}/etapi/notes/${richId}/content`, {
+        method: "PUT", headers: { Authorization: TRILIUM_TOKEN, "Content-Type": "text/plain" },
+        body: `<h1>Rich title</h1><p>intro</p><figure class="image"><img src="api/attachments/${att.attachmentId}/image/pic.png"></figure><h2>Heading two</h2><p>the needle word</p><ul class="todo-list"><li><label class="todo-list__label"><input type="checkbox" checked="checked" disabled="disabled"><span class="todo-list__label__description">done</span></label></li></ul>`,
+      });
+
+      // image note: shown in the popup (not in the sandbox), really decoded
+      await openByTitle(`mediaPng${tag}`);
+      await page.waitForSelector('[data-testid="media-image"] img', { timeout: 10000 });
+      await page.waitForFunction(() => { const i = document.querySelector('[data-testid="media-image"] img'); return i && i.complete && i.naturalWidth === 1; }, { timeout: 10000 });
+      if ((await page.locator("iframe.book-frame").count()) === 0 && (await page.getByRole("button", { name: "A+" }).count()) === 0) ok("reader: an image note shows the picture (decoded, no text frame, no text controls)");
+      else fail("image note still shows the text reader");
+      await page.getByRole("button", { name: "✕" }).click();
+
+      // PDF note: the browser's own viewer in an UNsandboxed iframe on a blob of the right type
+      await openByTitle(`mediaPdf${tag}`);
+      await page.waitForSelector('[data-testid="media-pdf"] iframe.media-pdf', { timeout: 10000 });
+      const pdfSrc = await page.locator("iframe.media-pdf").getAttribute("src");
+      const pdfSandbox = await page.locator("iframe.media-pdf").getAttribute("sandbox");
+      if (pdfSrc?.startsWith("blob:") && pdfSandbox === null && (await page.locator('[data-testid="media-pdf"] a[download]').count()) === 1) ok("reader: a PDF note opens in the PDF viewer (blob URL) with a download link");
+      else fail(`PDF note view wrong (src=${pdfSrc}, sandbox=${pdfSandbox})`);
+      await page.getByRole("button", { name: "✕" }).click();
+
+      // a PNG stored in a generic file note is still a picture (the bytes decide, not the mime)
+      await openByTitle(`mediaSniff${tag}`);
+      await page.waitForSelector('[data-testid="media-image"] img', { timeout: 10000 });
+      ok("reader: a file note holding a PNG is shown as a picture (type from the bytes)");
+      await page.getByRole("button", { name: "✕" }).click();
+
+      // a text file is shown as text; a binary we cannot show gets a download card
+      await openByTitle(`mediaTxt${tag}`);
+      await page.waitForSelector("iframe.book-frame", { timeout: 10000 });
+      const txtDoc = await page.locator("iframe.book-frame").getAttribute("srcdoc");
+      if (txtDoc?.includes("plain text file body") && txtDoc.includes("text file")) ok("reader: a text file note is shown as text");
+      else fail("text file note not shown as text");
+      await page.getByRole("button", { name: "✕" }).click();
+      await openByTitle(`mediaZip${tag}`);
+      await page.waitForSelector('[data-testid="media-download"] a[download]', { timeout: 10000 });
+      ok("reader: a file we cannot show offers a download");
+      await page.getByRole("button", { name: "✕" }).click();
+
+      // text note with a picture embedded through an attachment: fetched with the token and inlined as a data: URL
+      await openByTitle(`mediaRich${tag}`);
+      await page.waitForFunction(() => { const d = document.querySelector("iframe.book-frame")?.getAttribute("srcdoc") ?? ""; return d.includes("data:image/png;base64,") && d.includes("todo-list"); }, { timeout: 15000 });
+      const richDoc = await page.locator("iframe.book-frame").getAttribute("srcdoc");
+      // check the LIVE iframe document, not only the attribute (a browser once kept the stale pre-embed page on screen)
+      await page.waitForFunction(() => true);
+      let liveImgs = [];
+      for (let i = 0; i < 40 && !liveImgs.some((u) => u.startsWith("data:image/png")); i++) {
+        const fr = page.frames().find((f) => f !== page.mainFrame());
+        liveImgs = fr ? await fr.evaluate(() => [...document.images].map((im) => im.src)).catch(() => []) : [];
+        if (!liveImgs.some((u) => u.startsWith("data:image/png"))) await page.waitForTimeout(250);
+      }
+      if (!richDoc.includes("api/attachments") && liveImgs.some((u) => u.startsWith("data:image/png"))) ok("reader: a picture embedded through an attachment is inlined and shown (no request to Trilium's session-only URL is left)");
+      else fail(`embedded attachment picture not inlined / shown (live images: ${JSON.stringify(liveImgs.map((u) => u.slice(0, 30)))})`);
+      // outline from the headings + find-in-note
+      await page.getByRole("button", { name: "outline" }).click();
+      await page.getByRole("button", { name: "Heading two" }).waitFor({ timeout: 5000 });
+      ok("reader: the outline lists the note's headings");
+      await page.keyboard.press("Control+f");
+      await page.fill('input[aria-label="Find in this note"]', "needle");
+      await page.getByText("1 / 1").waitFor({ timeout: 8000 });
+      ok("reader: find-in-note (Ctrl+F) highlights and counts matches inside the sandbox");
+      await page.locator(".reader-find").getByRole("button", { name: "✕" }).click(); // closes the find bar
+
+      // the three leaf papers all draw the leaf (wrapper, stem, masks) and stay selectable; screenshot for a human look
+      await page.getByRole("button", { name: "Aa" }).click();
+      for (const label of ["Leaf (maple)", "Leaf (autumn)", "Leaf"]) {
+        await pickPaper(page, label);
+        await page.waitForFunction(() => document.querySelector("iframe.book-frame")?.getAttribute("srcdoc")?.includes("leaf-wrap"), { timeout: 8000 });
+        await page.waitForTimeout(250);
+        await page.screenshot({ path: `shots/reader-popup-${label.replace(/[^a-z]+/gi, "-").toLowerCase()}.png` });
+      }
+      ok("reader: the leaf papers (spring, autumn, maple) render the leaf page");
+      await pickPaper(page, "Parchment"); // leave the stored preference as the default
+      await page.getByRole("button", { name: "✕" }).last().click();
+    } finally {
+      for (const id of made) await fetch(`${TRILIUM_URL}/etapi/notes/${id}`, { method: "DELETE", headers: { Authorization: TRILIUM_TOKEN } });
+    }
   }
 
   // 2c. Yggdrasil (tree) view: needs WebGL — skipped (with a note) where the browser has none.

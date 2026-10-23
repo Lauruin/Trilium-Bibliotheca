@@ -21,6 +21,7 @@ import type {
   AuthResponse,
   CreateAttributeDef,
   CreateNoteDef,
+  EtapiAttachment,
   EtapiAttribute,
   EtapiError,
   EtapiNote,
@@ -151,15 +152,44 @@ export class TriliumClient {
   }
 
   /**
-   * Raw note content. For text notes this is HTML; for code notes the source;
-   * for markdown notes the markdown source. Binary notes return bytes —
-   * callers should not use this for image/file notes (v1 limitation).
+   * Raw note content AS TEXT. For text notes this is HTML; for code notes the source;
+   * for markdown notes the markdown source. Binary notes (image / file) must use
+   * {@link getNoteBlob}: reading bytes as text corrupts them.
    */
   async getNoteContent(noteId: string): Promise<string> {
     const res = await this.fetchOk(`/notes/${encodeURIComponent(noteId)}/content`, {
       headers: { Accept: "*/*" },
     });
     return res.text();
+  }
+
+  /**
+   * Raw note content as bytes (image and file notes). The Content-Type of the Blob is the
+   * note's mime as the server reports it (verified: image notes answer `image/png` etc.); it can be
+   * empty or wrong for hand-made notes, so callers sniff the bytes (lib/media.ts) before trusting it.
+   */
+  async getNoteBlob(noteId: string): Promise<Blob> {
+    const res = await this.fetchOk(`/notes/${encodeURIComponent(noteId)}/content`, {
+      headers: { Accept: "*/*" },
+    });
+    return res.blob();
+  }
+
+  /** Attachments of a note (a bare array; verified against v0.106.0). */
+  getNoteAttachments(noteId: string): Promise<EtapiAttachment[]> {
+    return this.request<EtapiAttachment[]>(`/notes/${encodeURIComponent(noteId)}/attachments`);
+  }
+
+  /**
+   * Bytes of one attachment (`GET /attachments/{id}/content`; answers with the attachment's mime).
+   * This is how pictures embedded in a text note (`<img src="api/attachments/ID/image/name.png">`,
+   * which need Trilium's session cookie in the browser) are fetched with the ETAPI token instead.
+   */
+  async getAttachmentBlob(attachmentId: string): Promise<Blob> {
+    const res = await this.fetchOk(`/attachments/${encodeURIComponent(attachmentId)}/content`, {
+      headers: { Accept: "*/*" },
+    });
+    return res.blob();
   }
 
   /** Full-text search (Trilium's own search engine). Returns full notes. */

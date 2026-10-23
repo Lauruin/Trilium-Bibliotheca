@@ -263,6 +263,14 @@ button.active {
   min-height: 0;
   padding: 0;
   background: #14101c;
+  display: flex;
+}
+
+.book-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
 }
 
 .book-frame {
@@ -557,3 +565,124 @@ button.active {
 .bp-foliage { display: grid; grid-template-columns: 150px 1fr 44px; gap: 6px; align-items: center; margin-top: 10px; padding-top: 8px; border-top: 1px solid #5a4a30; }
 .branch-panel button { background: #14101cc0; color: #e8dcc0; border: 1px solid #8a6a48; padding: 3px 9px; font: inherit; cursor: pointer; }
 .branch-panel button:disabled { opacity: 0.4; cursor: default; }
+
+
+/* Reader chrome: meta row, find bar, outline, footer, zen, media ------------- */
+
+.modal-actions { flex-wrap: wrap; justify-content: flex-end; }
+.modal-actions .active { outline: 1px solid #d8b868; }
+
+.reader-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 5px 14px;
+  border-bottom: 1px solid #2a2338;
+  background: #1d1728;
+  font-size: 12px;
+}
+.crumbs { display: inline-flex; flex-wrap: wrap; align-items: center; }
+.crumb-sep { color: #6a6a86; }
+.crumb {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  color: #b8a8d8;
+  cursor: pointer;
+  font: inherit;
+}
+.crumb:hover { color: #f0e2c0; text-decoration: underline; }
+.meta-bits { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-left: auto; }
+.chip {
+  font-size: 11px;
+  padding: 0 6px;
+  border: 1px solid #4a3a5a;
+  border-radius: 9px;
+  color: #cbb98a;
+  background: #241e30;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-find {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-bottom: 1px solid #2a2338;
+  background: #201a2c;
+}
+.reader-find input { flex: 0 1 280px; }
+
+.reader-outline {
+  flex: 0 0 220px;
+  overflow-y: auto;
+  padding: 8px 6px;
+  border-right: 1px solid #2a2338;
+  background: #1a1424;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.outline-item {
+  text-align: left;
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  color: #b8a8d8;
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.outline-item:hover { color: #f0e2c0; background: #241e30; }
+.outline-item.current { color: #f0e2c0; border-left-color: #d8b868; background: #241e30; }
+.outline-item.l2 { padding-left: 16px; }
+.outline-item.l3 { padding-left: 26px; }
+.outline-item.l4 { padding-left: 36px; font-size: 11px; }
+
+.sib-nav { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; }
+.sib-nav button { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.book-modal.zen { width: min(1100px, 98vw); }
+.zen-head { padding: 4px 14px; opacity: .55; }
+.zen-head:hover { opacity: 1; }
+
+.media-btn {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid #4a3a5a;
+  background: #241e30;
+  color: #f0e2c0;
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.media-btn:hover { background: #2e2640; }
+.media-btn.big { padding: 8px 18px; font-size: 14px; }
+
+.media-view { display: flex; flex-direction: column; height: 100%; }
+.media-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; background: #14101c; }
+.media-scroll.fit { align-items: center; justify-content: center; }
+.media-scroll.fit img { max-width: 100%; max-height: 100%; object-fit: contain; cursor: zoom-in; }
+.media-scroll.actual img { margin: auto; cursor: zoom-out; }
+.media-scroll img { image-rendering: auto; background: repeating-conic-gradient(#2a2338 0% 25%, #221c2e 0% 50%) 50% / 16px 16px; }
+.media-pdf { flex: 1; min-height: 0; width: 100%; border: 0; background: #2a2018; }
+.media-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 14px;
+  border-top: 1px solid #2a2338;
+  background: #201a2c;
+}
+.media-card { align-items: center; justify-content: center; gap: 8px; text-align: center; }
+.media-name { font-size: 16px; color: #f0e2c0; margin: 0; }
+.media-wait { padding: 14px; }

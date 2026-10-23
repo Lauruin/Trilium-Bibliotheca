@@ -111,7 +111,7 @@ Use the right hop. A `200` from the wrong one may be someone else's service.
   `BIBLIOTHECA_TEST_PASSWORD`).
 - Seed content: `node tools/seed-vault.js [profile]` (the big one, see "Trilium mock" below), `node tools/seed-demo.js`
   (tiny), `node tools/seed-rich.js` (hand-made, varied; uses calendar/day-note endpoints the fake lacks). All idempotent.
-- Unit tests: `node tools/unit-test.mjs` (18 sections, ~5 s, no network). Mock tooling tests: `npm run test:mock` (= `node tools/mock-test.mjs`,
+- Unit tests: `node tools/unit-test.mjs` (18 sections + the per-feature `tools/unit-*.mjs` files, ~10 s, no network; `unit-reader.mjs` covers media sniffing / planning, embedded pictures, note paths, the reader document and the leaf papers). Mock tooling tests: `npm run test:mock` (= `node tools/mock-test.mjs`,
   non-destructive; real mock optional; 33 checks with `--no-real`, ~2 s; NOT part of `npm test`).
 - 3D screenshots: `node tools/tree-shots.js [scenario...]` (see "Yggdrasil tree view"). Every script: `tools/README.md`.
   Docker-free ETAPI: `npm run mock:fake -- --seed medium` (see "Trilium mock").
@@ -145,7 +145,7 @@ Three pieces, one generator (`tools/lib/vault-gen.mjs`), all non-destructive to 
   GET/PUT, `GET /notes?search=` (words, `#label[=v]`, `~rel`, `note.<prop> op v`, and/or, archived hidden, `ancestorNoteId`, `limit`,
   `fastSearch`; header of the file lists the subset), create-note, attributes, branches (clones), CORS + preflight, the real
   `{status, code, message}` errors, content-hash `blobId`s, inheritable labels with the OWNER's `noteId`, name normalisation.
-  Not implemented: `not(...)`, attachments, revisions, calendar/day notes, backup, import/export. Deliberate differences: it refuses
+  Not implemented: `not(...)`, revisions, calendar/day notes, backup, import/export (attachments ARE implemented, see the ETAPI table). Deliberate differences: it refuses
   clone cycles and parent-less branches (see Gotchas), result order is tree order, ids come from a seeded PRNG.
 - **`tools/mock-test.mjs`** (`npm run test:mock`, ~3 s): one conformance suite runs against the fake (spawned on a free port) AND
   the real mock (skipped with a note when `.bootstrap.env` or the mock is missing; `--no-real` forces that) and the recorded shapes,
@@ -237,11 +237,15 @@ header (bare token, or `Bearer`-prefixed, or Basic with user "etapi").
 | label names (probe) | `biblio-Probe.Case` → stored `biblio_Probe_Case`: dots/hyphens become `_`, **case is kept** (the app reads names lowercased and matches case-insensitively) |
 | inheritable labels (probe) | an `isInheritable` label on a parent is listed on every descendant **with the owner's `noteId`** — only labels whose `noteId` equals the note's own id are its own (`toNoteInfo` filters; `setLabel` re-checks before PATCH/DELETE) |
 | label on `root` (probe) | accepted — library-wide `biblio_wing` lives on the root note |
+| `GET /etapi/notes/{id}/content` of an `image` / `file` note (probe) | raw BYTES with `Content-Type` = the note's mime (`image/png`, `application/pdf`), `Content-Disposition: attachment; filename="<title>.<ext>"`; read it with `res.blob()`, never `res.text()`. Create such a note with `content: ""` + the mime, then `PUT .../content` (`application/octet-stream`) |
+| `POST /etapi/attachments` `{ownerId, role, mime, title, content?, position?}` (probe) | 201 `{attachmentId, ownerId, role, mime, title, position (10), blobId, dateModified, utcDateModified}` (no `contentLength`); any `role` accepted (`image` for pictures embedded in a text note, `file`); content may be empty. No `ownerId` -> 500 GENERIC `Missing owner ID.`; unknown owner -> 400 PROPERTY_VALIDATION_ERROR; unknown property -> 400 PROPERTY_NOT_ALLOWED |
+| `GET /etapi/attachments/{id}` · `GET /etapi/notes/{id}/attachments` (probe) | the attachment with `utcDateScheduledForErasureSince: null` and `contentLength`; the note's list is a BARE ARRAY ordered by position. Unknown id -> 404 `ATTACHMENT_NOT_FOUND` `Attachment 'x' not found.`; list of an unknown note -> 404 NOTE_NOT_FOUND |
+| `GET /etapi/attachments/{id}/content` · `PUT` (probe) | bytes with `Content-Type` = the attachment's mime (`text/plain; charset=utf-8` for text mimes); `PUT` only `text/plain` / `application/octet-stream` -> 204, a JSON body -> 500 GENERIC. `PATCH` accepts role, mime, title, position only; `DELETE` is 204 even for an unknown id; deleting the owner note deletes its attachments. The editor embeds a picture as `<img src="api/attachments/<id>/image/<title>">` and the server keeps that HTML as written |
 
 Also verified by `tools/mock-test.mjs` (see "Trilium mock"): `POST/GET/PATCH/DELETE /branches` (clones: 201 new, 200 for an existing
 pair; `branchId` = `<parent>_<note>`), `GET /attributes/{id}`, `PATCH /notes/{id}` (`title`/`type`/`mime`), `PUT /notes/{id}/content`
 (`text/plain` or `application/octet-stream` only), CORS preflight, the error envelope for every failure class.
-Not needed so far (documented in spec): attachments, revisions, day-notes, backup, metrics.
+Not needed so far (documented in spec): revisions, day-notes, backup, metrics.
 
 ## Auth bootstrap (headless, verified — do not re-derive)
 
@@ -637,10 +641,10 @@ The vault as a TREE you climb as an animal, in two switchable looks: **voxel** (
   frame with the matching nonce. Never add `allow-same-origin` or relax the CSP.
 - Links: `internalNoteId(href)` recognises Trilium links (`#root/a/ID`, `/#root/ID`, `#ID`, full URL with `#root/…`);
   `prepareLinks` rewrites anchors (`data-note-id` / `data-ext`). Navigation history lives in the popup.
-- Content types: `text` -> HTML as is (inside the sandbox), `markdown` -> `marked`, `code` -> escaped `<pre>`, anything else -> a "no rendered preview" notice + raw
-  source; the raw toggle shows the source of any type. On a real v0.106 server markdown notes are `code` + mime `text/x-markdown` (ETAPI has no `markdown` type, see "Trilium mock"); `effectiveType(type, mime)` in `lib/content.ts` (used by `renderNoteContent`) and the same rule in `library.ts#toNoteInfo` turn `code` + a mime matching /markdown/i into `markdown`, so they render as markdown and get the maple leaf (unit section 21).
-- Papers: parchment (default), book page, sepia, night, study, **leaf** (soft green, fits the tree view; ink/page
-  >= 7:1 and link/page >= 4.5:1 is unit-tested). Prefs (font/size/width/paper) persist in localStorage `biblio.v1.reader`; `sanitizePrefs` repairs bad values.
+- Content types: `text` -> HTML as is (inside the sandbox), `markdown` -> `marked`, `code` -> escaped `<pre>`, `image`/`file` -> fetched as BYTES (`client.getNoteBlob`), the kind sniffed from the bytes (`lib/media.ts`: `sniffBytes`, `planMedia`) and shown by `ui/MediaView.tsx` in the popup (picture / PDF viewer in an unsandboxed iframe on a blob we label from the bytes / text file / download card), anything else -> a "no rendered preview" notice + raw
+  source; the raw toggle shows the source of any text type. Pictures embedded in text notes (`api/attachments/ID/image/..`, `api/images/NOTEID/..`) are fetched via ETAPI and inlined as `data:` URLs (`lib/embeds.ts`, bytes verified, size limits, placeholder on failure). Reader chrome: breadcrumb / siblings / Trilium URL in `lib/notepath.ts`, outline + find + scroll memory + forwarded keys through the iframe script in `lib/reader.ts` (`prepareDocument`, `READER_SCRIPT`), `ui/BookPopup.tsx`. **Gotcha: every document needs its own `<iframe>` element (`key={doc.nonce}`)**: changing `srcdoc` on a live iframe was ignored by Chrome while the first document was still loading (stale page, broken pictures, lost `find` messages: nonce mismatch). On a real v0.106 server markdown notes are `code` + mime `text/x-markdown` (ETAPI has no `markdown` type, see "Trilium mock"); `effectiveType(type, mime)` in `lib/content.ts` (used by `renderNoteContent`) and the same rule in `library.ts#toNoteInfo` turn `code` + a mime matching /markdown/i into `markdown`, so they render as markdown and get the maple leaf (unit section 21).
+- Papers: parchment (default), book page, sepia, night, study and three **leaf** papers (`leaf` spring, `leafAutumn`, `leafMaple`; procedural, `lib/leafpaper.ts`: silhouette mask from stretchable caps + serrated side mask, veins, speckle, stem; overlays <= 0.14 opacity; ink/page
+  >= 7:1 and link/page >= 4.5:1 is unit-tested for each). Prefs (font/size/width/paper) persist in localStorage `biblio.v1.reader`; `sanitizePrefs` repairs bad values.
 
 ## World building (build mode, `B`) — how it works
 

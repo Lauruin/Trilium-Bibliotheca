@@ -27,7 +27,8 @@ Formerly the SiYuan biblio plugin idea - **SiYuan is abandoned; Trilium is the t
 - **Walkable rooms.** One folder = one room; child folders are doors; walk with `A`/`D` or the arrows, jump with `Space`, interact with `E`, at any depth. `Q`/`Backspace` goes one folder up.
 - **Shelves and books.** Leaf notes stand on tall bookcases grouped by their labels ("tags"); unlabelled notes get an "unfiled" case; a tag with more books than one case holds continues on the next ("reading 2", ...). Spine colour comes from the note's own `#color` label or a stable per-tag palette; spine width follows the title length.
   Rooms grow wider with their contents (caps: 12 bookcases and 10 doors per room, with "+N" markers).
-- **Reading.** Opening a book shows the note in a reader: HTML for text notes, markdown rendering for markdown notes, source for code. `A-`/`A+` (or `-`/`+`) change the text size; `Aa` opens font (book serif, classic serif, sans, typewriter), width and **paper** (parchment, book page, sepia, night, study, leaf), all remembered.
+- **Reading.** Opening a book shows the note in a reader: HTML for text notes (including what Trilium's editor writes: todo lists, admonitions, figures, tables, highlights), markdown rendering for markdown notes, source for code. **Image notes** show the picture, **PDF notes** open in the browser's PDF viewer, text files show as text, other files offer a download (the type is decided from the file's bytes, not the note's mime); **pictures embedded in text notes** are fetched through the API and shown. `A-`/`A+` (or `-`/`+`) change the text size; `Aa` opens font (book serif, classic serif, sans, typewriter), width and **paper** (parchment, book page, sepia, night, study and three **leaf** papers: spring, autumn, maple), all remembered.
+  Around the page: the note's **breadcrumb**, label chips, edit date and reading time, an **outline** of its headings, **find in note** (`Ctrl+F`), previous/next note in the folder (`[` / `]`), **zen** mode (`Alt+Z`), copy link and open-in-Trilium; the scroll position of each note is remembered.
   **Links** to other Trilium notes open inside the reader with back/forward (`Alt+Left`/`Alt+Right`), a "links" bar lists the note's internal links, external links ask first, and a toggle flips to the raw source.
 - **Search.** The wisp is a front end for Trilium's own full-text search. **Socrates** is an honest placeholder: the RAG/chat assistant is a later part of the architecture, so he says he cannot talk yet.
 - **Folder descriptions.** A room's note text shows on a plaque under the top bar; standing at a door shows that folder's.
@@ -68,7 +69,7 @@ Everything below is checked against the code (`src/lib/trilium/client.ts` is the
 - It then walks your vault breadth-first from the root note you configured (default `root`): one `GET /etapi/notes/{id}` per note, **at most 400 notes and depth 8**, skipping Trilium's internal `_hidden` subtree. That reads titles, note types, mimes, labels/attributes and child ids, not note content.
 - A snapshot of that structure (titles, ids, labels, no note text) is kept in this browser's localStorage so the world can open offline.
 
-**While you use it (reads).** Note text is fetched when you open a note in the reader, and the tree view fetches content in the background only to measure how long each note is (leaf size; only the number is cached, never the text). Search uses `GET /etapi/notes?search=...`.
+**While you use it (reads).** Note text is fetched when you open a note in the reader; for image and file notes the bytes (`GET /etapi/notes/{id}/content`), and for pictures embedded in a text note the attachment's bytes (`GET /etapi/attachments/{id}/content`). The tree view fetches content in the background only to measure how long each note is (leaf size; only the number is cached, never the text). Search uses `GET /etapi/notes?search=...`.
 
 **Writes: only when you trigger them.**
 
@@ -82,7 +83,7 @@ The `biblio_*` labels it writes: `biblio_x`, `biblio_y` (room position), `biblio
 
 **What it never does (in this version):** rename, move or delete notes, change any note's title or content, touch labels or relations that are not `biblio_*`, or send your data anywhere but to the Trilium URL you entered (a note whose HTML embeds a remote image makes your browser fetch that image, as any web page would; external links ask before opening). (The planned editor will change the first part of that, and is planned to ask for confirmation before saving.)
 
-**What it keeps in your browser (localStorage):** the server URL, **the ETAPI token in plain text**, the structure snapshot above, the leaf-size cache (numbers), and your reader and view preferences. The undo history lives in memory only and is gone when you reload.
+**What it keeps in your browser (localStorage):** the server URL, **the ETAPI token in plain text**, the structure snapshot above, the leaf-size cache (numbers), and your reader and view preferences (including where you stopped reading each of your 200 most recent notes). The undo history lives in memory only and is gone when you reload.
 
 **What you will see inside Trilium:** the `biblio_*` labels show up as ordinary labels in a note's attributes and sync like any attribute; an **Inbox** note and the notes you captured. To remove the app's traces, delete the Inbox (and captured notes, if you want them gone) and remove the `biblio_*` labels, for example by searching `#biblio_x` and so on and using Trilium's bulk actions to delete the label.
 
@@ -144,7 +145,7 @@ Check your Pangolin version's docs for the exact resource/rule options. A single
 | View | Keys |
 |---|---|
 | Library | `A`/`D` or arrows walk · `Space`/`W` jump · `E`/`Enter` interact · `Q`/`Backspace` up · `O` overview · `B` build · `Z` undo · `C` capture · `T` tree |
-| Reader | `+`/`-` size · `Alt+Left`/`Alt+Right` history · `Esc` close |
+| Reader | `+`/`-` size · `Alt+Left`/`Alt+Right` history · `Ctrl+F` find (`Enter` / `F3` next) · `[` `]` previous / next note · `Alt+Z` zen · `Esc` close |
 | Tree | `W`/`S`/`A`/`D` move · `Space` leap/reach/take off · `Shift` climb in (fliers: down / land) · `E` read · `1`/`2`/`3` animal category · `G` grip · `M` move guided/free · `H` auto-align (free) · `V` camera · `L` look · `N` names · `F` foliage · `K` shadows · `P` pixels · wheel or `+`/`-` zoom · `T` back |
 
 ## Status and limitations
@@ -155,7 +156,7 @@ Honest list of what is not there or not as good as it sounds:
 - **Walk caps.** The vault is walked breadth-first from the root note, at most 400 notes and depth 8. Beyond that notes are simply absent (no lazy loading yet) and a toast says so.
 - **Spine thickness follows the title**, not the note length (real length would need a content fetch per note; only the tree view measures lengths).
 - **Notes are read-only in the app.** Capture creates notes; build mode and the tree's branch panel write `biblio_*` labels; nothing edits content, titles or structure. Renaming, creating, deleting and moving notes from inside the game is *planned*, not built.
-- **Rendering limits.** Images inside text notes (Trilium attachment URLs need session cookies) do not load; image, file, canvas and similar notes show their raw content with a notice. On a real v0.106 server markdown notes are `code` notes with a markdown mime type; the app treats those as markdown.
+- **Rendering limits.** `image` and `file` notes show as pictures / PDFs / text / a download card, and pictures embedded in text notes load; canvas, mermaid, mind-map and similar notes still show their raw content with a notice (no renderer yet), and math (`.math-tex`) shows its TeX source. On a real v0.106 server markdown notes are `code` notes with a markdown mime type; the app treats those as markdown.
 - **Links and relations** between notes are not visualised (only labels are read); a design exists, nothing is built.
 - **Socrates is a placeholder**; there is no intelligence service. One library per app instance; no townsquare, quest board or calendar.
 - **The tree view needs WebGL**, and its camera/animal feel is still being tuned. In headless containers it needs a full Chromium with software GL (see the wiki).

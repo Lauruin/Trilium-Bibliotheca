@@ -11,14 +11,14 @@
  * the real v0.106.0 mock (tools/mock-test.mjs runs one set of assertions against both and compares the shapes):
  *   auth (bare / Bearer / Basic token), app-info, auth/login + logout, notes (GET/PATCH/DELETE, content GET/PUT),
  *   search (subset, below), create-note, attributes (POST/GET/PATCH/DELETE), branches (POST/GET/PATCH/DELETE),
- *   refresh-note-ordering, CORS incl. preflight, inheritable labels listed on descendants with the OWNER's noteId,
+ *   attachments (POST/GET/PATCH/DELETE, content GET/PUT, GET /notes/{id}/attachments), refresh-note-ordering, CORS incl. preflight, inheritable labels listed on descendants with the OWNER's noteId,
  *   attribute-name normalisation (`a.b-c` -> `a_b_c`, case kept), clones (several parents), content-hash blobIds.
  * Search subset: plain words (all must appear in title / label text / content, accent- and case-insensitive; HTML
  *   stripped for text notes), "quoted phrases", #label, #!label, #label op value, ~relation[.title|.noteId] op value,
  *   note.<title|type|mime|noteId|content|isArchived|parents.title|children.title|ancestors.title|...> op value, and/or,
  *   parentheses; ops = != *=* =* *= %= > >= < <=. Params: fastSearch, includeArchivedNotes, ancestorNoteId (the note itself included), ancestorDepth,
  *   limit, orderBy/orderDirection. Archived notes (#archived, own or inherited) and the _hidden subtree are excluded by
- *   default. NOT implemented: not(...), fuzzy ops, ~relation chains, templates, protected notes, attachments, revisions,
+ *   default. NOT implemented: not(...), fuzzy ops, ~relation chains, templates, protected notes, revisions,
  *   calendar/day notes, backups, import/export. Unknown routes answer 404 like Express does.
  * Deliberate differences from the real server: POST /branches refuses a cycle (the real one accepts it and corrupts
  * the instance: never try that there); DELETE of root/_hidden is refused; result order = tree order; ids come from a
@@ -41,6 +41,7 @@ class EtapiError extends Error {
 const bad = (property, msg) => new EtapiError(400, "PROPERTY_VALIDATION_ERROR", `Validation failed on property '${property}': ${msg}`);
 const generic = (msg, status = 500) => new EtapiError(status, "GENERIC", msg);
 const noteNotFound = (id) => new EtapiError(404, "NOTE_NOT_FOUND", `Note '${id}' not found.`);
+const attachmentNotFound = (id) => new EtapiError(404, "ATTACHMENT_NOT_FOUND", `Attachment '${id}' not found.`);
 
 const NOTE_TYPES = ["text", "code", "render", "file", "image", "search", "relationMap", "book", "noteMap", "mermaid", "canvas", "webView", "launcher", "doc", "contentWidget", "mindMap", "spreadsheet", "llmChat"];
 const DEFAULT_MIME = { text: "text/html", code: "text/plain", render: "", file: "application/octet-stream", image: "", search: "", relationMap: "application/json", book: "", noteMap: "", mermaid: "text/vnd.mermaid", canvas: "application/json", webView: "", launcher: "", doc: "", contentWidget: "", mindMap: "application/json", spreadsheet: "application/json", llmChat: "application/json" };
@@ -65,11 +66,11 @@ const norm = (s) => String(s).toLowerCase().normalize("NFD").replace(/\p{M}/gu, 
 
 export function createStore({ idSeed = 1, markdownType = false } = {}) {
   const rnd = mulberry(idSeed * 7919 + 13);
-  const notes = new Map(), branches = new Map(), attrs = new Map();
+  const notes = new Map(), branches = new Map(), attrs = new Map(), attachments = new Map();
   const childBr = new Map(); // parentNoteId -> Branch[]
   const parentBr = new Map(); // noteId -> Branch[] (creation order)
   const noteTypes = markdownType ? [...NOTE_TYPES, "markdown"] : NOTE_TYPES;
-  const store = { notes, branches, attrs, noteTypes };
+  const store = { notes, branches, attrs, attachments, noteTypes };
 
   const genId = (taken) => { for (;;) { let s = ""; for (let i = 0; i < 12; i++) s += ID_CHARS[Math.floor(rnd() * ID_CHARS.length)]; if (!taken.has(s)) return s; } };
 
@@ -114,6 +115,14 @@ export function createStore({ idSeed = 1, markdownType = false } = {}) {
     const n = notes.get(a.noteId);
     if (n) n.attrIds = n.attrIds.filter((x) => x !== id);
   }
+  /** Attachment of a note (verified against v0.106.0: any role accepted, position defaults to 10, content may be empty). */
+  function putAttachment(o) {
+    const t = stamp();
+    const content = o.content ?? Buffer.alloc(0);
+    const a = { attachmentId: o.attachmentId ?? genId(attachments), ownerId: o.ownerId, role: o.role ?? "", mime: o.mime ?? "", title: o.title ?? "", position: o.position ?? 10, content, blobId: blobIdOf(content), dateModified: t.local, utcDateModified: t.utc };
+    attachments.set(a.attachmentId, a);
+    return a;
+  }
   function removeBranch(br) {
     branches.delete(br.branchId);
     childBr.set(br.parentNoteId, (childBr.get(br.parentNoteId) ?? []).filter((b) => b !== br));
@@ -127,6 +136,7 @@ export function createStore({ idSeed = 1, markdownType = false } = {}) {
     for (const br of (parentBr.get(id) ?? []).slice()) removeBranch(br);
     for (const br of kids) removeBranch(br);
     for (const aid of n.attrIds.slice()) removeAttr(aid);
+    for (const a of [...attachments.values()]) if (a.ownerId === id) attachments.delete(a.attachmentId);
     notes.delete(id);
     childBr.delete(id); parentBr.delete(id);
     for (const a of [...attrs.values()]) if (a.type === "relation" && a.value === id) removeAttr(a.attributeId);
@@ -165,7 +175,7 @@ export function createStore({ idSeed = 1, markdownType = false } = {}) {
     return out;
   }
 
-  Object.assign(store, { genId, putNote, addBranch, addAttr, removeAttr, removeBranch, deleteNote, isDescendant, ancestors, allAttrs, sortedChildren, parentBr, childBr });
+  Object.assign(store, { genId, putNote, putAttachment, addBranch, addAttr, removeAttr, removeBranch, deleteNote, isDescendant, ancestors, allAttrs, sortedChildren, parentBr, childBr });
 
   // the two notes every Trilium has
   putNote({ noteId: "root", title: "root", type: "text", mime: "text/html" });
@@ -206,6 +216,12 @@ function setContent(store, id, buf) {
 // ---------------------------------------------------------------------------------------------
 
 const attrJson = (a) => ({ attributeId: a.attributeId, noteId: a.noteId, type: a.type, name: a.name, value: a.value, position: a.position, isInheritable: a.isInheritable, utcDateModified: a.utcDateModified });
+/** `full` = the GET / PATCH shape (adds utcDateScheduledForErasureSince + contentLength); the POST answer lacks both. */
+const attachmentJson = (a, full = true) => ({
+  attachmentId: a.attachmentId, ownerId: a.ownerId, role: a.role, mime: a.mime, title: a.title, position: a.position, blobId: a.blobId,
+  dateModified: a.dateModified, utcDateModified: a.utcDateModified,
+  ...(full ? { utcDateScheduledForErasureSince: null, contentLength: a.content.length } : {}),
+});
 const branchJson = (b) => ({ branchId: b.branchId, noteId: b.noteId, parentNoteId: b.parentNoteId, prefix: b.prefix, notePosition: b.notePosition, isExpanded: b.isExpanded, utcDateModified: b.utcDateModified });
 function noteJson(store, n) {
   const pbs = store.parentBr.get(n.noteId) ?? [];
@@ -532,6 +548,51 @@ export async function startFake({ port = 0, host = "127.0.0.1", seed, vaultSeed 
       const n = store.putNote({ noteId: id, title: b.title ?? "New note", type: b.type, mime: b.mime ?? DEFAULT_MIME[b.type] ?? "", content: Buffer.from(b.content, "utf8") });
       const { branch } = store.addBranch(id, b.parentNoteId, { notePosition: b.notePosition, prefix: b.prefix ?? null, isExpanded: b.isExpanded ?? false });
       return sendJson(res, 201, { note: noteJson(store, n), branch: branchJson(branch) });
+    }
+
+    // --- attachments (shapes and errors verified against v0.106.0)
+    if (m === "GET" && seg[0] === "notes" && seg[2] === "attachments" && seg.length === 3) {
+      getNote(seg[1]);
+      return sendJson(res, 200, [...store.attachments.values()].filter((a) => a.ownerId === seg[1]).sort((a, b) => a.position - b.position).map((a) => attachmentJson(a)));
+    }
+    if (m === "POST" && p === "/attachments") {
+      const b = asObject(json());
+      checkProps(b, ["ownerId", "role", "mime", "title", "content", "position"], { ownerId: "string", role: "string", mime: "string", title: "string", content: "string", position: "integer" });
+      if (b.ownerId === undefined) throw generic("Missing owner ID.");
+      if (!store.notes.has(b.ownerId)) throw bad("ownerId", `Note '${b.ownerId}' does not exist.`);
+      const a = store.putAttachment({ ownerId: b.ownerId, role: b.role, mime: b.mime, title: b.title, position: b.position, content: Buffer.from(b.content ?? "", "utf8") });
+      return sendJson(res, 201, attachmentJson(a, false));
+    }
+    if (seg[0] === "attachments" && seg.length === 2) {
+      if (m === "DELETE") { store.attachments.delete(seg[1]); return sendEmpty(res, 204); } // idempotent, like the real server
+      const a = store.attachments.get(seg[1]);
+      if (!a) throw attachmentNotFound(seg[1]);
+      if (m === "GET") return sendJson(res, 200, attachmentJson(a));
+      if (m === "PATCH") {
+        const b = asObject(json());
+        checkProps(b, ["role", "mime", "title", "position"], { role: "string", mime: "string", title: "string", position: "integer" });
+        for (const k of ["role", "mime", "title", "position"]) if (b[k] !== undefined) a[k] = b[k];
+        const t = stamp(); a.dateModified = t.local; a.utcDateModified = t.utc;
+        return sendJson(res, 200, attachmentJson(a));
+      }
+    }
+    if (seg[0] === "attachments" && seg[2] === "content" && seg.length === 3) {
+      const a = store.attachments.get(seg[1]);
+      if (!a) throw attachmentNotFound(seg[1]);
+      if (m === "GET") {
+        const name = (a.title || "attachment").replace(/[^\w.-]+/g, "_");
+        const textual = /^text\/|json|xml|javascript/.test(a.mime);
+        res.writeHead(200, { ...CORS, "Content-Disposition": `attachment; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`, "Content-Type": a.mime ? (textual ? `${a.mime}; charset=utf-8` : a.mime) : "application/octet-stream", "Content-Length": a.content.length });
+        return res.end(a.content);
+      }
+      if (m === "PUT") {
+        const ct = req.headers["content-type"] ?? "";
+        if (/json/i.test(ct) && body.length) throw generic('The "list" argument must be an instance of SharedArrayBuffer, ArrayBuffer or ArrayBufferView.');
+        if (!/^(text\/plain|application\/octet-stream)/i.test(ct)) throw generic(`Cannot set null content to attachmentId '${a.attachmentId}'`);
+        a.content = Buffer.from(body); a.blobId = blobIdOf(a.content);
+        const t = stamp(); a.dateModified = t.local; a.utcDateModified = t.utc;
+        return sendEmpty(res, 204);
+      }
     }
 
     // --- attributes

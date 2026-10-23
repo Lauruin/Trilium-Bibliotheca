@@ -410,6 +410,66 @@ async function conformance(T) {
       assert.equal((await call("POST", `/refresh-note-ordering/${sib}`)).status, 204);
     });
 
+    await check("attachments: create 201 (no contentLength), bytes round-trip with the right Content-Type, list is a bare array, PATCH/DELETE, the error envelopes", async () => {
+      const PNG1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+      const owner = (await mk(scratch, "has attachments")).note.noteId;
+      const cr = await call("POST", "/attachments", { body: { ownerId: owner, role: "image", mime: "image/png", title: "pic.png", content: "" } });
+      assert.equal(cr.status, 201);
+      rec.attachCreateShape = shapeOf(cr.json);
+      assert.ok(!("contentLength" in cr.json), "POST answers without contentLength");
+      assert.equal(cr.json.position, 10);
+      assert.match(cr.json.utcDateModified, /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}Z$/);
+      const id = cr.json.attachmentId;
+      assert.equal((await call("PUT", `/attachments/${id}/content`, { raw: { contentType: "application/octet-stream", body: PNG1 } })).status, 204);
+      const got = await call("GET", `/attachments/${id}/content`, { headers: { Accept: "*/*" } });
+      assert.equal(got.status, 200);
+      assert.ok(got.buf.equals(PNG1), "bytes survive the round trip");
+      rec.attachContentType = got.headers.get("content-type");
+      assert.match(got.headers.get("content-disposition"), /^attachment; filename="pic\.png"/);
+      const meta = await call("GET", `/attachments/${id}`);
+      rec.attachGetShape = shapeOf(meta.json);
+      assert.equal(meta.json.contentLength, PNG1.length);
+      assert.equal(meta.json.utcDateScheduledForErasureSince, null);
+      const list = await call("GET", `/notes/${owner}/attachments`);
+      assert.ok(Array.isArray(list.json), "the list is a bare array");
+      rec.attachListShape = shapeOf(list.json);
+      assert.equal(list.json.length, 1);
+      const patched = await call("PATCH", `/attachments/${id}`, { body: { title: "renamed.png", position: 30 } });
+      assert.equal(patched.status, 200);
+      assert.equal(patched.json.title, "renamed.png"); assert.equal(patched.json.position, 30);
+      rec.attachPatchShape = shapeOf(patched.json);
+      // text attachment: the content type gets a charset like text notes do
+      const tx = await call("POST", "/attachments", { body: { ownerId: owner, role: "file", mime: "text/plain", title: "hello.txt", content: "h\u00e9llo" } });
+      const txGet = await call("GET", `/attachments/${tx.json.attachmentId}/content`, { headers: { Accept: "*/*" } });
+      assert.equal(txGet.text, "h\u00e9llo");
+      rec.attachTextContentType = txGet.headers.get("content-type");
+      // errors
+      const miss = await call("GET", "/attachments/doesNotExist1");
+      rec.attachErrMissing = errBody(miss);
+      rec.attachErrMissingContent = errBody(await call("GET", "/attachments/doesNotExist1/content"));
+      rec.attachErrMissingPatch = errBody(await call("PATCH", "/attachments/doesNotExist1", { body: { title: "x" } }));
+      rec.attachDeleteMissing = (await call("DELETE", "/attachments/doesNotExist1")).status;
+      rec.attachErrListNote = errBody(await call("GET", "/notes/doesNotExist1/attachments"));
+      rec.attachErrNoOwner = errBody(await call("POST", "/attachments", { body: { role: "file", mime: "text/plain", title: "t", content: "x" } }));
+      rec.attachErrBadOwner = errBody(await call("POST", "/attachments", { body: { ownerId: "doesNotExist1", role: "file", mime: "text/plain", title: "t", content: "x" } }));
+      rec.attachErrBadProp = errBody(await call("POST", "/attachments", { body: { ownerId: owner, role: "file", mime: "text/plain", title: "t", content: "x", bogus: 1 } }));
+      rec.attachErrPatchProp = errBody(await call("PATCH", `/attachments/${id}`, { body: { ownerId: "x" } }));
+      // (PUT of a JSON body answers 500 GENERIC on both, but the real message depends on the attachment mime: not compared)
+      assert.equal(miss.status, 404);
+      // delete: 204, gone; deleting the note takes its attachments along
+      assert.equal((await call("DELETE", `/attachments/${id}`)).status, 204);
+      assert.equal((await call("GET", `/attachments/${id}`)).status, 404);
+      const remaining = tx.json.attachmentId;
+      assert.equal((await call("DELETE", `/notes/${owner}`)).status, 204);
+      assert.equal((await call("GET", `/attachments/${remaining}`)).status, 404, "the owner's deletion removed the attachment");
+      // an image NOTE serves its bytes with the note's mime too (what the reader's image view fetches)
+      const imgNote = (await call("POST", "/create-note", { body: { parentNoteId: scratch, title: "pic", type: "image", mime: "image/png", content: "" } })).json.note.noteId;
+      assert.equal((await call("PUT", `/notes/${imgNote}/content`, { raw: { contentType: "application/octet-stream", body: PNG1 } })).status, 204);
+      const ig = await call("GET", `/notes/${imgNote}/content`, { headers: { Accept: "*/*" } });
+      assert.ok(ig.buf.equals(PNG1));
+      rec.imageNoteContentType = ig.headers.get("content-type");
+    });
+
     if (T.isFake || REAL_LOGIN) {
       await check("auth/login: wrong password 401 WRONG_PASSWORD; right password 201 {authToken} that works", async () => {
         const wrong = await call("POST", "/auth/login", { auth: null, body: { password: "nope" } });

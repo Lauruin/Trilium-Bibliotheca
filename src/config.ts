@@ -106,6 +106,7 @@ export const TREE_WALK = {
 export const STORAGE = {
   settings: "biblio.v1.settings",
   reader: "biblio.v1.reader",
+  readerScroll: "biblio.v1.readerScroll", // noteId → 0..1 scroll position of the reader (the 200 most recent notes)
   treeCache: "biblio.v2.treeCache", // v2: labels are own-only (inherited ones dropped)
   leafSizes: "bibliotheca.leafsizes.v1", // noteId → {blob, len}: content lengths for leaf sizes (numbers only)
 } as const;

@@ -62,7 +62,7 @@ Symptom, then cause, then fix. Collected from `AGENTS.md`, `LOCAL-TESTING.md` an
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Images in a note do not load | Trilium attachment URLs need session cookies; the app uses token auth and the reader is sandboxed | Known v1 limitation; remote `http(s)` images do load |
+| An image embedded in a text note shows "picture unavailable" | The picture could not be fetched through the API (the attachment was deleted, the token lacks access, it is over 6 MB, or the bytes are not an image); embedded pictures are fetched with your ETAPI token and inlined | Open the note in Trilium to see whether the attachment still exists; remote `http(s)` images load as usual |
 | A markdown note shows as source | A `code` note whose mime does not contain "markdown" is code (v0.106 sends markdown as `code` plus a markdown mime, and the app maps that to markdown) | Check the note's mime in Trilium; use the raw toggle meanwhile |
 | A canvas or image note shows "No rendered preview for note type ..." | Only text, markdown and code have a renderer | Raw source is shown instead |
 | Clicking a link in a note does nothing | Only Trilium-internal links and `http(s)`/`mailto:` links are live; links with other schemes (`javascript:`, `tel:`, `ftp:`) are neutralised by design | Open the note in Trilium |

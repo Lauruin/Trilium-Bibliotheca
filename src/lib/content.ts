@@ -6,9 +6,10 @@
  * render with scripts: everything goes into a CSP-locked sandboxed iframe (see
  * lib/reader.ts), so even Trilium's own HTML output can't execute JS in our UI.
  *
- * Known v1 limitation: image references inside text notes
- * (/api/attachments/...) need Trilium session cookies; with ETAPI-token
- * auth they won't load in the sandboxed iframe. Documented in the README.
+ * Pictures embedded in text notes (`api/attachments/...`, `api/images/...`) need Trilium's session
+ * cookie, which this app does not have: lib/embeds.ts fetches them through ETAPI and inlines them
+ * before the HTML reaches the sandbox. Binary notes (image / file) never come through here: see
+ * lib/media.ts and ui/MediaView.tsx.
  */
 
 import { marked } from "marked";

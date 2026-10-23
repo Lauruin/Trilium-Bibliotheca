@@ -41,7 +41,7 @@ The `medium` vault is left in the mock for browsing (app server `http://localhos
 
 Implements: app-info; auth (bare, Bearer and Basic tokens; `/auth/login` and logout); notes GET/PATCH/DELETE; content GET/PUT; `GET /notes?search=` (words, quoted phrases, `#label[=v]`, `~relation`, `note.<prop> op v`, and/or, parentheses, archived hidden, `ancestorNoteId`, `limit`, `fastSearch`, ...); create-note; attributes; branches (clones); `refresh-note-ordering`; CORS with preflight;
 the real `{status, code, message}` error envelope; content-hash `blobId`s; inheritable labels listed with the **owner's** `noteId`; attribute-name normalisation.
-**Not implemented:** `not(...)`, fuzzy operators, attachments, revisions, calendar/day notes, backup, import/export.
+**Implemented too:** attachments (`POST/GET/PATCH/DELETE /attachments`, `/attachments/{id}/content` GET + PUT, `GET /notes/{id}/attachments`), with the shapes and errors checked against the real server by `mock-test.mjs`. **Not implemented:** `not(...)`, fuzzy operators, revisions, calendar/day notes, backup, import/export.
 **Deliberate differences:** it refuses clone cycles and parent-less branches (the real server accepts them and corrupts itself, see below), it refuses to delete root, result order is tree order, and ids come from a seeded PRNG.
 
 ### Conformance: `npm run test:mock`

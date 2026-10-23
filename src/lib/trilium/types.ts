@@ -53,6 +53,25 @@ export interface EtapiAttribute {
   isInheritable?: boolean;
 }
 
+/**
+ * GET /etapi/attachments/{id} and GET /etapi/notes/{id}/attachments (verified against v0.106.0:
+ * the list is a bare array, not wrapped). Content is fetched separately from `/attachments/{id}/content`.
+ */
+export interface EtapiAttachment {
+  attachmentId: EntityId;
+  /** The note the attachment belongs to. */
+  ownerId: EntityId;
+  /** "image" for pictures embedded in a text note, "file" for plain attachments. */
+  role: string;
+  mime: string;
+  title: string;
+  position?: number;
+  blobId?: string;
+  utcDateModified?: string;
+  /** Only in GET responses (not in the POST /attachments answer). */
+  contentLength?: number;
+}
+
 /** POST /etapi/attributes body (creating a label). */
 export interface CreateAttributeDef {
   noteId: EntityId;
