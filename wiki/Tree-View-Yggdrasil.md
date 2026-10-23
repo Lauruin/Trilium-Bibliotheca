@@ -272,6 +272,10 @@ The tree view **reads** your vault and writes only what you save from the branch
 
 `lizard3d.html` (dev: `http://localhost:5173/lizard3d.html`; hosted: `/lizard3d.html`) runs the same scene on a hand-made demo log, **without Trilium**. Add `?vault` to lay out a synthetic vault (random folders, note types and lengths) through the real `layoutTree`; extra parameters: `&layout=hub|forest` (default forest, not the stored preference), `&trees=N` (top-level folders), `&depth=D` (folder levels; keep it at 1 or 2 for software-GL screenshots), `&wave=fn:amp:freq` (for example `helix:0.06:3`, a wave on every folder). `R` respawns. It is also what `tools/tree-shots.js` photographs; see [Testing](Testing.md).
 
+## First-person camera
+
+`V` (or the pause menu's Graphics tab) has a fifth camera: **first person**. The eye sits just above the animal's head, the body is hidden, the view is wide (75 degrees; the wheel narrows / widens it) and looks along the animal's heading; drag the mouse to look around (the view settles back to where you walk after a moment). Like the mouse camera, the look direction steers the snake's reach, the jump aim and flight. World up stays up (no rolling with the bark), so climbing a vertical trunk looks up the trunk.
+
 ## The pause menu and the keys
 
 `Esc` stops a walk; with nothing to stop it opens the **pause menu** (the simulation stands still): **Game** (clock, restart the tutorial, unlock everything, movement, layout, wisp, library), **Graphics** (look, shadows, foliage, performance profile, pixel mode, camera, names, stats) and **Controls** (a cheat sheet grouped Move / Animal / View / Tools, generated from `tree/keymap.ts`, plus what the animals do with the keys). Click a key to rebind it and press the new one (Backspace clears, Esc cancels; a key that belonged to another action moves over). Each action has two key slots. `Esc` itself cannot be rebound, so the menu is always reachable. The tutorial's text shows your current keys.

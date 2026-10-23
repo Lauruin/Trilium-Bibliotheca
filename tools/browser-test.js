@@ -695,6 +695,37 @@ try {
       await page.keyboard.press("e"); // back to the shrine panel for the next steps (the animal still stands at the altar)
       await page.getByRole("dialog", { name: "Shrine" }).waitFor({ timeout: 15000 });
     }
+    // First-person camera (the fifth V mode): the eye is at the animal's head, the body is hidden, the view is wide, dragging looks around
+    {
+      await page.keyboard.press("Escape"); // closes the shrine panel
+      await page.getByRole("dialog", { name: "Shrine" }).waitFor({ state: "detached", timeout: 10000 });
+      await page.evaluate(() => { const s = window.__treeScene; s.setCamera("level"); });
+      for (let i = 0; i < 6 && (await page.evaluate(() => window.__treeScene.camMode)) !== "first"; i++) await page.keyboard.press("v");
+      await page.waitForFunction(() => window.__treeScene.frameCount > 0 && window.__treeScene.camMode === "first", undefined, { timeout: 30000 });
+      await page.waitForTimeout(1500);
+      const fp = await page.evaluate(() => {
+        const s = window.__treeScene; const h = s.creature.flight ? s.creature.flight.p : null; const c = s.camera.position;
+        const body = s.rig.group; const p0 = s.rig.headPoint ? s.rig.headPoint : null;
+        return { mode: s.camMode, fov: s.camera.fov, hidden: body.visible === false, near: s.camera.near, cam: [c.x, c.y, c.z], head: p0 ? [p0.x, p0.y, p0.z] : null, h };
+      });
+      const dist = fp.head ? Math.hypot(fp.cam[0] - fp.head[0], fp.cam[1] - fp.head[1], fp.cam[2] - fp.head[2]) : 0;
+      if (fp.mode === "first" && fp.fov > 60 && fp.hidden && fp.near < 3 && (!fp.head || dist < 60)) ok(`first person: the eye is at the head (${dist.toFixed(0)} units), wide view (${fp.fov}°), the body is hidden`);
+      else fail(`first person camera looks wrong: ${JSON.stringify(fp)} dist ${dist}`);
+      const box1 = await page.locator(".tree-canvas canvas").boundingBox();
+      const yaw0 = await page.evaluate(() => window.__treeScene.fpYaw);
+      await page.mouse.move(box1.x + box1.width / 2, box1.y + box1.height / 2);
+      await page.mouse.down({ button: "right" });
+      await page.mouse.move(box1.x + box1.width / 2 + 120, box1.y + box1.height / 2, { steps: 4 });
+      await page.mouse.up({ button: "right" });
+      const yaw1 = await page.evaluate(() => window.__treeScene.fpYaw);
+      if (yaw1 > yaw0 + 0.2) ok("first person: dragging the mouse looks around");
+      else fail(`dragging did not turn the first-person view (${yaw0} -> ${yaw1})`);
+      await page.evaluate(() => { const s = window.__treeScene; s.setCamera("level"); });
+      if (await page.evaluate(() => window.__treeScene.rig.group.visible === true && Math.abs(window.__treeScene.camera.fov - 42) < 0.01)) ok("first person: leaving it brings the body and the normal field of view back");
+      else fail("the body / field of view were not restored after first person");
+          await page.keyboard.press("e"); // back to the shrine panel for the next steps
+      await page.getByRole("dialog", { name: "Shrine" }).waitFor({ timeout: 15000 });
+    }
     // The unlock system: the Progress section lists what is open; switching "unlock everything" off locks the animals again; the tutorial replays and skips
     {
       await page.getByTestId("shrine-progress").waitFor({ timeout: 15000 });
@@ -770,13 +801,22 @@ try {
     {
       const daySnap = () => page.evaluate(() => { const s = window.__treeScene; const d = s.daylight; return { hours: d.hours, dayK: d.dayK, stars: d.stars, shadow: d.shadowStrength, lantern: s.lanternOn, sunY: d.sunDir.y, intensity: s.sunLightIntensity }; });
       await page.getByTestId("clock-fixed").click();
-      await page.getByTestId("clock-hour").fill("0");
-      await page.waitForFunction(() => window.__treeScene.daylight.hours === 0 && window.__treeScene.lanternOn, undefined, { timeout: 90000 });
+      // (an input event right after a HUD re-render is sometimes lost in the slow software-GL page: retry the fill)
+      const setHour = async (h, ready) => {
+        for (let i = 0; i < 5; i++) {
+          await page.getByTestId("clock-hour").fill(String(h));
+          try {
+            await page.waitForFunction(ready, undefined, { timeout: 25000 });
+            return;
+          } catch { /* fill again */ }
+        }
+        throw new Error(`the clock never reached ${h}:00`);
+      };
+      await setHour(0, () => window.__treeScene.daylight.hours === 0 && window.__treeScene.lanternOn);
       const night = await daySnap();
       if (night.dayK < 0.05 && night.stars > 0.9 && night.shadow === 0 && night.lantern && night.sunY < 0 && night.intensity === 0) ok("clock: at midnight the stars are out, the sun is down, no shadows, the wisp is a lantern");
       else fail(`midnight looks wrong: ${JSON.stringify(night)}`);
-      await page.getByTestId("clock-hour").fill("12");
-      await page.waitForFunction(() => window.__treeScene.daylight.hours === 12 && !window.__treeScene.lanternOn, undefined, { timeout: 90000 });
+      await setHour(12, () => window.__treeScene.daylight.hours === 12 && !window.__treeScene.lanternOn);
       const noon = await daySnap();
       if (noon.dayK > 0.95 && noon.stars === 0 && noon.shadow > 0.95 && !noon.lantern && noon.sunY > 0.3 && noon.intensity > 2.8) ok("clock: at noon it is bright, the sun is high, shadows are full and the lantern is off");
       else fail(`noon looks wrong: ${JSON.stringify(noon)}`);

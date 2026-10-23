@@ -56,7 +56,7 @@ Your vault as a **forest**, in a **voxel** (default) or **low-poly** look (`L`, 
 - **Foliage.** A translucent, species-specific canopy (round puffs, cone tiers, willow curtains, blossom clouds, umbrellas...) hides the thin branches from afar and fades out near you and the camera, so tips are never stumps; `F` toggles it, a density slider sits at the bottom of the `B` panel.
 - **Climbing.** Walking up past a side branch's base **climbs into it by itself** when you are on the side of the bark where it grows (walk on the other side and you pass it); hold `Shift` to **stay** on the branch you are on. Walking down never turns you into a side branch. (Ground roots and silk threads keep the old rule: `Shift` climbs in.) An on-screen hint tells you what the branch ahead will do; `E` next to a leaf reads the note. Hanging underneath for too long makes you slip (shaking warns you; `G` turns grip off; a vertical trunk never drains grip). `H` toggles auto-align.
 - **Editing branches (`B`).** Stand on a branch and press `B`: sliders for length, thickness, taper, rotation on the parent, angle off the parent, position on the parent, droop/lift, the kind of tree and a **wave** (amplitude, frequency and a shape: sine, zigzag, sawtooth, corkscrew, S-bend or natural wobble, with a small preview); every row has a one-line help. The tree re-grows live; **Save** stores each changed value as a label (`biblio_blen`, `biblio_bthick`, ...) on the folder note, ↺ and **Recalculate all** go back to the calculated values (the label is removed), **Undo** takes back the last write. Labels only, never titles or content.
-- **Cameras and looks.** `V` cycles chase (rolls with the surface), level (horizon stays level), fixed and **mouse** (the mouse orbits the camera round the animal: drag with the right button, or drag the left one; **in this free camera the direction you look steers the snake's and ant's reach, the jump aim, flight (the heading turns to the camera, a hover flier flies where you look) and the spider's swing**); wheel or `+`/`-` zoom; `P` for a chunky pixel look.
+- **Cameras and looks.** `V` cycles chase (rolls with the surface), level (horizon stays level), fixed, **mouse** and **first person** (you see through the animal's eyes: a wide view, the body hidden, drag the mouse to look around, the wheel changes the field of view; like the mouse camera, where you look steers reach, jump aim and flight) (the mouse orbits the camera round the animal: drag with the right button, or drag the left one; **in this free camera the direction you look steers the snake's and ant's reach, the jump aim, flight (the heading turns to the camera, a hover flier flies where you look) and the spider's swing**); wheel or `+`/`-` zoom; `P` for a chunky pixel look.
 - **Mouse.** Point at a branch or a leaf: a ring shows what a click would do and a tooltip names it. **Click = walk there**: the animal walks to that spot along the branches by itself (it presses the same keys you would: it turns round the bark to the right side, enters side branches, crosses the foot of Yggdrasil between trees by walking down into the root it wants); **click the wisp** to search, and in the results **take me there** walks you to a note and **light the way** sends the wisp to hover beside it with a beam of light; **double-click a leaf** = walk there and read it; any key or `Esc` stops the walk, and walking switches a free-moving animal to guided movement for its duration. Fliers have to land first.
 - **Performance (`I`).** The tree view is limited by the GPU, not by JavaScript. `I` opens a panel with the frame rate, the JS time per frame next to the total frame time (long frames with little JS = GPU-bound), draw calls, triangles and the resolution, and switches for what costs most (shadows, foliage, look) and for the **profile**: `auto` (the default: pixel ratio up to 1.5, 60 fps cap, MSAA only on normal screens, and the resolution drops by itself while frames are slow), `quality` (the old behaviour: up to 2x, MSAA, no cap) and `fast` (1x, no MSAA, down to half resolution). The renderer also asks laptops for their faster GPU.
 - **Low-poly look and shadows.** The low-poly look (`L`) has real **sun shadows** (`K` cycles off, low, medium, high; remembered; off shows a soft blob under the animal instead), faceted bark with baked ambient occlusion, moss, scars, rounded forks and sharp twig tips, leaves that sway, and a living ground (flat under the forest, hills beyond, grass tufts, flowers, mushrooms, a pond, low-poly clouds that stand in the world and drift - you can fly up among them). The voxel look gets the shadows and pointed tips too.
@@ -100,6 +100,68 @@ The `biblio_*` labels it writes: `biblio_x`, `biblio_y` (room position), `biblio
 **What you will see inside Trilium:** the `biblio_*` labels show up as ordinary labels in a note's attributes and sync like any attribute; an **Inbox** note and the notes you captured. To remove the app's traces, delete the Inbox (and captured notes, if you want them gone) and remove the `biblio_*` labels, for example by searching `#biblio_x` and so on and using Trilium's bulk actions to delete the label.
 
 The automated tests only ever run against a throwaway Trilium started from `compose.yml`, never against a real vault.
+
+## Install with Docker Compose (ready-made image)
+
+The fastest way to run it: a small container that serves the app and talks to your Trilium **on the server side** (single origin: no CORS setup, and your ETAPI token never reaches the browser). The image is `ghalen123/tryldrasil` on Docker Hub (built for `linux/amd64`). Read [Before you connect](#before-you-connect-what-the-app-reads-and-writes) first and **make a Trilium backup**: this is an alpha.
+
+**1. Save this as `docker-compose.yml`** (it includes a Trilium; if you already run one, delete the `trilium` service and the `depends_on` lines and point `TRILIUM_URL` at yours):
+
+```yaml
+services:
+  trilium:
+    image: triliumnext/trilium:v0.106.0      # pinned: do not use "latest" for your notes
+    restart: unless-stopped
+    volumes:
+      - trilium-data:/home/node/trilium-data
+    ports:
+      - "127.0.0.1:8080:8080"                # only for the first setup below; remove it afterwards
+
+  app:
+    image: ghalen123/tryldrasil:0.1.0-alpha.1
+    restart: unless-stopped
+    ports:
+      - "8081:80"                            # the app: http://<your-host>:8081
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - trilium
+    environment:
+      TRILIUM_URL: http://trilium:8080       # where the container reaches Trilium
+      TRILIUM_TOKEN: ${TRILIUM_TOKEN}        # from the .env file next to this one
+      TRILIUM_NAME: "My notes"
+      # TRILIUM_READONLY: "1"                # optional: the app can only read
+      # AI is off unless you set these (see "Optional AI" below):
+      # AI_PROVIDER: anthropic
+      # AI_KEY: ${AI_KEY}
+
+volumes:
+  trilium-data:
+```
+
+**2. First start of Trilium, once:**
+
+```bash
+docker compose up -d trilium
+```
+
+Open http://localhost:8080, set a password, then in Trilium go to **Options -> ETAPI** and create a token.
+
+**3. Give the app the token and start it:**
+
+```bash
+echo 'TRILIUM_TOKEN=<paste the ETAPI token>' > .env
+docker compose up -d
+```
+
+Open **http://localhost:8081** (or `http://<your-server>:8081`). The app opens in the tree: you start on the porch of Yggdrasil. `Esc` is the menu (controls, graphics, time).
+
+**Updating:** `docker compose pull && docker compose up -d`. **Stopping:** `docker compose down` (your notes stay in the `trilium-data` volume). **Away from home:** put HTTPS and your SSO in front of port 8081 only, see [Using it away from home](#using-it-away-from-home-https--pangolin). Anyone who gets past the SSO can read, and unless `TRILIUM_READONLY=1` write labels and capture notes into that Trilium, so use read-only for anything shared. Every variable is described under [Hosting the app itself](#hosting-the-app-itself).
+
+**Build it yourself instead:** `git clone` this repository and run `docker compose up -d --build bibliotheca` (the repository's own `compose.yml` also starts a throw-away test Trilium; see Quick start).
 
 ## Quick start
 

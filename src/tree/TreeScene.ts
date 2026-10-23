@@ -50,8 +50,11 @@ export type { LabelMode };
 export type { PerfProfile };
 export { VOX, branchVoxels, LOOKS, type Look } from "./look";
 
-export type CamMode = "chase" | "level" | "fixed" | "mouse";
-export const CAM_MODES: readonly CamMode[] = ["chase", "level", "fixed", "mouse"];
+export type CamMode = "chase" | "level" | "fixed" | "mouse" | "first";
+export const CAM_MODES: readonly CamMode[] = ["chase", "level", "fixed", "mouse", "first"];
+/** The first-person field of view (degrees; the wheel narrows / widens it) and the third-person one. */
+const FOV_FIRST = 75;
+const FOV_THIRD = 42;
 
 const LOOK_KEY = "biblio.v1.treeLook";
 const CAM_KEY = "biblio.v1.treeCam";
@@ -174,6 +177,12 @@ export class TreeScene {
   titles: ReadonlyMap<string, string> = new Map();
   zoomMul = 1.5;
   /** Mouse camera: the camera orbits the animal at these angles (yaw round the y axis, pitch above the horizon), set by dragging. */
+  /** First-person look offsets from the heading (radians; dragging the mouse changes them). */
+  fpYaw = 0;
+  fpPitch = 0;
+  private fpIdle = 0;
+  /** The first-person field of view in degrees (the wheel changes it there; the other cameras zoom by distance). */
+  private fpFov = FOV_FIRST;
   orbitYaw = 0;
   orbitPitch = 0.4;
   /** Click-to-walk: the running autopilot (or null), and the move mode to give back when it ends. */
@@ -482,7 +491,8 @@ export class TreeScene {
   // ---- public controls ------------------------------------------------------------
 
   zoom(factor: number): void {
-    this.zoomMul = Math.min(8, Math.max(0.2, this.zoomMul * factor));
+    if (this.camMode === "first") this.fpFov = Math.min(105, Math.max(30, this.fpFov * factor));
+    else this.zoomMul = Math.min(8, Math.max(0.2, this.zoomMul * factor));
     this.onGame?.({ kind: "zoom" });
   }
 
@@ -674,8 +684,26 @@ export class TreeScene {
         this.orbitPitch = Math.max(-1.3, Math.min(1.3, Math.asin(rel.y / rel.length())));
       }
     }
+    if (mode === "first" && this.camMode !== "first") {
+      this.fpYaw = 0;
+      this.fpPitch = 0;
+    }
     this.camMode = mode;
+    this.creatureGroup.visible = mode !== "first";
+    this.applyFov();
     save(CAM_KEY, mode);
+  }
+
+  /** The field of view follows the camera mode (first person is wide; the wheel narrows / widens it there). */
+  private applyFov(): void {
+    const first = this.camMode === "first";
+    const fov = first ? this.fpFov : FOV_THIRD;
+    const near = first ? Math.max(1.2, 2.2 * this.camScale) : 3; // (the eye is a few units above the bark: a close near plane)
+    if (Math.abs(this.camera.fov - fov) > 1e-3 || Math.abs(this.camera.near - near) > 1e-3) {
+      this.camera.fov = fov;
+      this.camera.near = near;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   cycleCamera(): void {
@@ -1099,7 +1127,7 @@ export class TreeScene {
     if (p.down) {
       if (Math.hypot(x - p.sx, y - p.sy) > 5) p.moved = true;
       // mouse camera: right-drag, or a left-drag that is more than a click, orbits the animal
-      if (this.camMode === "mouse" && this.enabled && (p.button === 2 || (p.button === 0 && p.moved))) this.orbit(x - p.x, y - p.y);
+      if ((this.camMode === "mouse" || this.camMode === "first") && this.enabled && (p.button === 2 || (p.button === 0 && p.moved))) this.orbit(x - p.x, y - p.y);
       p.x = x;
       p.y = y;
       this.hover = null;
@@ -1162,6 +1190,13 @@ export class TreeScene {
 
   /** Drag the mouse camera round the animal (pixels moved). */
   orbit(dx: number, dy: number): void {
+    if (this.camMode === "first") {
+      // first person: dragging looks around (right = look right, up = look up), relative to the heading
+      this.fpYaw += dx * 0.004;
+      this.fpPitch = Math.max(-1.45, Math.min(1.45, this.fpPitch - dy * 0.004));
+      this.fpIdle = 0;
+      return;
+    }
     this.orbitYaw -= dx * 0.006;
     this.orbitPitch = Math.max(-1.35, Math.min(1.4, this.orbitPitch + dy * 0.006));
   }
@@ -1390,7 +1425,7 @@ export class TreeScene {
       silk: this.silkQueued,
       drop: k.has("silk"),
     };
-    if (this.camMode === "mouse") {
+    if (this.camMode === "mouse" || this.camMode === "first") {
       // the free camera steers reach, jump aim, flight and the swing: hand the sim the direction it looks along
       const d = this.camera.getWorldDirection(this.lookDir);
       input.aimDir = { x: d.x, y: d.y, z: d.z };
@@ -1640,12 +1675,44 @@ export class TreeScene {
     return { fwd: cf.clone(), up };
   }
 
+  /** First person: the eye sits just above the head's spot on the surface, looks along the heading (smoothed like the chase camera) plus the mouse-look offsets, world up stays up. */
+  private firstPerson(dt: number, head: THREE.Vector3): void {
+    const c = this.creature;
+    const tv = this.travel(dt);
+    const surfUp = c.flight || c.air ? new THREE.Vector3(0, 1, 0) : tv.up;
+    const eye = head.clone().addScaledVector(surfUp, Math.max(7, 15 * this.camScale)).addScaledVector(tv.fwd, 6 * this.camScale);
+    eye.y = Math.max(eye.y, this.ground + 12);
+    // walking forward lets the look offsets settle back towards the heading, like turning your head to where you go
+    this.fpIdle += dt;
+    if (this.keys.has("forward") && this.fpIdle > 1.2) {
+      const k = Math.min(1, dt * 1.6);
+      this.fpYaw -= this.fpYaw * k;
+      this.fpPitch -= this.fpPitch * k;
+    }
+    const yaw = Math.atan2(tv.fwd.z, tv.fwd.x) + this.fpYaw;
+    const pitch = Math.max(-1.5, Math.min(1.5, Math.asin(Math.max(-1, Math.min(1, tv.fwd.y))) + this.fpPitch));
+    const cp = Math.cos(pitch);
+    const dir = new THREE.Vector3(Math.cos(yaw) * cp, Math.sin(pitch), Math.sin(yaw) * cp);
+    this.camPos.copy(eye);
+    this.camUp.set(0, 1, 0);
+    this.camLook.copy(eye).add(dir.multiplyScalar(300));
+    this.camera.position.copy(eye);
+    this.camera.up.set(0, 1, 0);
+    this.camera.lookAt(this.camLook);
+  }
+
   private updateCamera(dt: number): void {
     const c = this.creature;
     const head = c.flight ? T3(c.flight.p) : T3(bodyPoint(c, 0).p);
     const floor = this.ground + 25;
     let up = new THREE.Vector3(0, 1, 0);
     let wantPos: THREE.Vector3;
+    this.creatureGroup.visible = this.camMode !== "first"; // (seen from inside, the body would only be in the way)
+    if (this.camMode === "first") {
+      this.applyFov();
+      this.firstPerson(dt, head);
+      return;
+    }
     if (this.camMode === "chase") {
       const tv = this.travel(dt);
       up = tv.up;

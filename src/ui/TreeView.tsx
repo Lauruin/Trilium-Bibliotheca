@@ -583,7 +583,7 @@ export function TreeView(props: {
               )}
             </div>
           )}
-          {!shrineOpen && !leafView && !pauseOpen && <TutorialCard mouseCamera={hud.camera === "mouse"} bindings={bindings} />}
+          {!shrineOpen && !leafView && !pauseOpen && <TutorialCard mouseCamera={hud.camera === "mouse" || hud.camera === "first"} bindings={bindings} />}
           <div className="tree-animals" onMouseDown={(e) => e.preventDefault()}>
             {ANIMAL_CATEGORIES.map((cat, ci) => (
               <div key={cat.label} className="tree-cat">
@@ -640,7 +640,7 @@ export function TreeView(props: {
             <button className={hud.moveMode === "free" && hud.autoAlign ? "active" : ""} disabled={hud.moveMode !== "free"} onClick={() => sceneRef.current?.toggleAutoAlign()} title={hud.moveMode === "free" ? "Gently straighten your heading along the branch when you are not steering (H)" : "Only used in free movement: guided movement always straightens along the branch (H)"}>
               auto-align: {hud.moveMode !== "free" ? "n/a" : hud.autoAlign ? "on" : "off"}
             </button>
-            <button onClick={() => sceneRef.current?.cycleCamera()} title="Camera: chase (rolls with the branch) · level (horizon stays level) · fixed · mouse (drag to orbit round the animal; right-drag works too) (V)">
+            <button onClick={() => sceneRef.current?.cycleCamera()} title="Camera: chase (rolls with the branch) · level (horizon stays level) · fixed · mouse (drag to orbit round the animal; right-drag works too) · first person (see through its eyes; drag to look) (V)">
               camera: {hud.camera}
             </button>
             <button className={hud.wispMode === "follow" ? "active" : ""} onClick={() => sceneRef.current?.toggleWispMode()} title="The search wisp: perched on the shrine's lantern post, or following you like a lantern">

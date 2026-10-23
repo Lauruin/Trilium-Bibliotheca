@@ -105,7 +105,7 @@ export function PauseMenu(props: {
                 <h3>Look</h3>
                 <Choice label="Look" value={hud?.look ?? "voxel"} options={[["voxel", "voxel"], ["lowpoly", "low-poly"]]} onPick={(v) => scene.setLook(v)} testid="gfx-look" />
                 <Choice label="Branch names" value={hud?.labels ?? "signs"} options={[["signs", "signs"], ["bubbles", "bubbles"], ["off", "off"]]} onPick={(v) => scene.setLabels(v)} />
-                <Choice label="Camera" value={hud?.camera ?? "chase"} options={[["chase", "chase"], ["level", "level"], ["fixed", "fixed"], ["mouse", "mouse"]]} onPick={(v) => scene.setCamera(v)} help="mouse: drag to orbit; the look direction steers reach, jumps and flight" />
+                <Choice label="Camera" value={hud?.camera ?? "chase"} options={[["chase", "chase"], ["level", "level"], ["fixed", "fixed"], ["mouse", "mouse"], ["first", "first person"]]} onPick={(v) => scene.setCamera(v)} help="mouse: drag to orbit; first person: drag to look; the look direction steers reach, jumps and flight" />
                 <Choice label="Pixel mode" value={scene.pixelated ? "on" : "off"} options={[["off", "off"], ["on", "on"]]} onPick={(v) => scene.setPixelated(v === "on")} />
               </section>
               <section className="shrine-sec">

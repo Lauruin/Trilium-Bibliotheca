@@ -50,7 +50,7 @@ export const ACTIONS: readonly Action[] = [
   { id: "grip", group: "Animal", label: "Grip on / off", help: "Off: you never slip", keys: ["g"] },
   { id: "autoAlign", group: "Animal", label: "Auto-align", help: "Free movement only: straighten along the branch", keys: ["h"] },
   { id: "move", group: "Animal", label: "Movement: guided / free", help: "Guided (W up, S down) or the old free steering", keys: ["m"] },
-  { id: "camera", group: "View", label: "Camera", help: "Chase, level, fixed, mouse", keys: ["v"] },
+  { id: "camera", group: "View", label: "Camera", help: "Chase, level, fixed, mouse, first person", keys: ["v"] },
   { id: "zoomIn", group: "View", label: "Zoom in", help: "Also the mouse wheel", keys: ["+", "="] },
   { id: "zoomOut", group: "View", label: "Zoom out", help: "Also the mouse wheel", keys: ["-", "_"] },
   { id: "pixel", group: "View", label: "Pixel mode", help: "A chunky pixel look", keys: ["p"] },
