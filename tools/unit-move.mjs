@@ -367,15 +367,23 @@ export default async ({ bundle, assert }) => {
       run(w, c, S_, 10);
       assert.equal(c.head.b, "trunk", `${id}: S from the fork's base goes back onto the log (${fork} -> ${c.head.b})`);
       assert.ok(Math.abs(Math.abs(c.phi) - Math.PI) < 0.5, `${id}: ... and keeps walking base-ward (${c.phi.toFixed(2)})`);
-      // climb: Shift at the side branch's base turns onto it; W goes up, S down and off it
+      // climb: walking tip-ward in the side branch's base zone turns onto it AUTOMATICALLY (Shift = stay); W goes up, S down and off it
       const c2 = guided(w, id, "trunk", 940);
       c2.head.th = W.thetaOf(W.frameAt(w.branches.get("trunk"), 1010), V(0, 1, 0)); // the top of the log's side that faces up
+      const stay = guided(w, id, "trunk", 940);
+      stay.head.th = c2.head.th;
+      let stayed = true;
+      for (let i = 0; i < 60 * 8; i++) {
+        S.step(w, stay, { ...idle, forward: true, climb: true }, DT);
+        if (stay.head.b === "climb") stayed = false;
+      }
+      assert.ok(stayed, `${id}: holding Shift while walking W you stay on the log and pass the side branch`);
       let on = false;
       for (let i = 0; i < 60 * 8 && !on; i++) {
-        S.step(w, c2, { ...idle, forward: true, climb: true }, DT);
+        S.step(w, c2, { ...idle, forward: true }, DT);
         on = c2.head.b === "climb";
       }
-      assert.ok(on, `${id}: Shift + W climbs into the vertical branch`);
+      assert.ok(on, `${id}: W alone climbs into the vertical branch (auto-climb)`);
       run(w, c2, W_, 1.5);
       assert.ok(c2.head.b === "climb" && !c2.air, `${id}: and walks up it`);
       const y0 = S.bodyPoint(c2, 0).p.y;
@@ -434,8 +442,92 @@ export default async ({ bundle, assert }) => {
       for (let i = 0; i < 60 * 30 && c.head.b !== "root"; i++) S.step(w, c, { ...idle, back: true }, DT);
       assert.equal(c.head.b, "root", `${id}: S down a trunk reaches the hub`);
       run(w, c, W_, 20);
-      assert.ok(/^F\d$/.test(c.head.b), `${id}: W from the hub's end walks up a trunk (${c.head.b})`);
+      // (it may already have turned into a side branch of that trunk: walking tip-ward through a side branch's base zone climbs it, see section 10)
+      assert.ok(c.head.b !== "root" && /^[FG]\d/.test(c.head.b), `${id}: W from the hub's end walks up a trunk or one of its side branches (${c.head.b})`);
     }
+  }
+
+  // ================= 10b. auto-climb: walk tip-ward in a side branch's zone = climb it; the other side passes; Shift = stay =================
+  {
+    // a horizontal trunk "b" (r 20, +x) with a side branch "side" leaving UPWARD (+y) at s = 1000
+    const mkJunction = () => {
+      const w = straight(20);
+      W.addBranch(w, W.makeBranch("side", W.smoothPath([V(1000, 0, 0), V(1000, 200, 0), V(1000, 600, 0)]), 12, "b", 1000));
+      return w;
+    };
+    const trunkOf = (w) => w.branches.get("b");
+    const thTo = (w, y) => W.thetaOf(W.frameAt(trunkOf(w), 1000), V(0, y, 0));
+    for (const id of ALL) {
+      for (const mode of ["guided", "free"]) {
+        const mk = (th, s = 940) => {
+          const w = mkJunction();
+          const c = S.spawn(w, A(id), "b", s, mode);
+          c.head.th = th;
+          c.gripOn = false;
+          return { w, c };
+        };
+        // facing the side branch's side of the bark: climbs by itself
+        const up = mk(thTo(mkJunction(), 1));
+        let on = false;
+        for (let i = 0; i < 60 * 8 && !on; i++) { S.step(up.w, up.c, { ...idle, forward: true }, DT); on = up.c.head.b === "side"; }
+        assert.ok(on || up.c.head.b !== "b", `${id}/${mode}: walking tip-ward on the side the branch grows from climbs it (${up.c.head.b})`);
+        // the far side of the bark: passes
+        const down = mk(thTo(mkJunction(), -1));
+        let entered = false;
+        for (let i = 0; i < 60 * 6; i++) { S.step(down.w, down.c, { ...idle, forward: true }, DT); if (down.c.head.b === "side") entered = true; }
+        assert.ok(!entered && down.c.head.s > 1050, `${id}/${mode}: walking on the other side of the bark passes the junction (s ${down.c.head.s.toFixed(0)})`);
+        // Shift = stay, even on the side it grows from
+        const stay = mk(thTo(mkJunction(), 1));
+        let diverted = false;
+        for (let i = 0; i < 60 * 6; i++) { S.step(stay.w, stay.c, { ...idle, forward: true, climb: true }, DT); if (stay.c.head.b === "side") diverted = true; }
+        assert.ok(!diverted && stay.c.head.s > 1050, `${id}/${mode}: Shift stays on the branch (s ${stay.c.head.s.toFixed(0)})`);
+        // no key = standing in the zone does not pull you in
+        const still = mk(thTo(mkJunction(), 1), 1000);
+        for (let i = 0; i < 60 * 3; i++) S.step(still.w, still.c, idle, DT);
+        assert.equal(still.c.head.b, "b", `${id}/${mode}: standing still in the zone does not climb`);
+      }
+    }
+    // coming back DOWN the branch lands on the parent in the zone; walking on up the parent from there does not pull you straight back in
+    for (const id of ["lizard", "cat", "snake", "ant", "spider"]) {
+      const w = mkJunction();
+      const c = S.spawn(w, A(id), "b", 940, "guided");
+      c.head.th = thTo(w, 1);
+      c.gripOn = false;
+      let on = false;
+      for (let i = 0; i < 60 * 8 && !on; i++) { S.step(w, c, { ...idle, forward: true }, DT); on = c.head.b === "side"; }
+      assert.ok(on, `${id}: climbed (setup)`);
+      run(w, c, W_, 1);
+      let back = false;
+      for (let i = 0; i < 60 * 20 && !back; i++) { S.step(w, c, { ...idle, back: true }, DT); back = c.head.b === "b"; }
+      assert.ok(back, `${id}: S brings you back down onto the trunk`);
+      assert.equal(c.noAuto, "side", `${id}: the branch you just came down from is remembered`);
+      run(w, c, idle, 0.5);
+      assert.equal(c.head.b, "b", `${id}: standing there you stay on the trunk`);
+      let again = false;
+      for (let i = 0; i < 60 * 8; i++) { S.step(w, c, { ...idle, forward: true }, DT); if (c.head.b === "side") again = true; }
+      assert.ok(!again && c.head.b === "b" && c.head.s > 1040, `${id}: W on up the trunk is not pulled back into the branch (${c.head.b}, s ${c.head.s.toFixed(0)})`);
+      assert.equal(c.noAuto, undefined, `${id}: once out of the zone auto-climb is armed again`);
+    }
+    // a ground root / silk thread still needs Shift: standing at the stump's base and walking W does not enter a root
+    {
+      const w = forest.world;
+      const stump = w.branches.get("root");
+      const rid = stump.side.find((id) => w.branches.get(id).root);
+      assert.ok(rid, "the forest stump has a ground root");
+      const c = S.spawn(w, A("lizard"), "root", 8, "guided");
+      let enteredRoot = false;
+      for (let th = -3; th <= 3 && !enteredRoot; th += 0.5) {
+        const d = S.spawn(w, A("lizard"), "root", 8, "guided");
+        d.head.th = th;
+        d.gripOn = false;
+        const near = S.climbTarget(w, d);
+        if (!near || !near.root) continue;
+        for (let i = 0; i < 90; i++) { S.step(w, d, { ...idle, forward: true }, DT); if (d.head.b.startsWith("root:")) enteredRoot = true; }
+      }
+      assert.ok(!enteredRoot || c, "W alone never enters a ground root (they keep the Shift rule)");
+      assert.ok(!enteredRoot, "W alone at the stump's base does not turn into a ground root");
+    }
+    numbers.autoClimb = "ok";
   }
 
   // ================= 11. aiming, reaching, silk, flight: the keys keep their own meanings in guided mode =================

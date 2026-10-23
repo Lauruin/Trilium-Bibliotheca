@@ -20,18 +20,20 @@ import { BranchLabels, LABEL_MODES, type LabelMode } from "./labels";
 import { applySilks, silkVersion } from "./silk";
 import { leafScale } from "./leafkind";
 import { buildLeafIndex, nearestLeafTo, type LeafIndex } from "./leafindex";
+import { Autopilot, type Goal, type PilotStatus } from "./autopilot";
+import { pickAt, type Pick } from "./pick";
 import {
   AdaptiveScale, DEFAULT_PERF_PROFILE, diagnose, effectivePixelRatio, FrameClock, nextPerfProfile, PERF_KEY, PERF_PROFILES, PROFILE,
   FrameLimiter, useMsaa, type FrameSummary, type PerfProfile,
 } from "./perf";
 import type { Leaf } from "./layout";
-import { surfacePoint, type World } from "./world3";
+import { frameAt, nearestOnBranch, radiusAt, surfacePoint, type World } from "./world3";
 import { clampDensity, FoliageLayer } from "./foliage";
 import { CreatureRig } from "./creatures";
 import { CLOUDS, createVignette, environmentKey } from "./scenery";
 import { ContactShadow, foliageDepthMaterial, loadShadowQuality, nextShadowQuality, SHADOW_KEY, SunShadows, tagShadows, type ShadowQuality } from "./shadows";
 import {
-  buildBark, buildEnvironment, buildLeaves, buildLights, buildSky, disposeGroup, SKY, SUN_DIR, T3, VOX, WIND, type Look,
+  buildBark, buildEnvironment, buildLeaves, buildLights, buildSky, disposeGroup, SKY, SUN_DIR, T3, toV, VOX, WIND, type Look,
 } from "./look";
 
 export type { Leaf } from "./layout";
@@ -40,8 +42,8 @@ export type { LabelMode };
 export type { PerfProfile };
 export { VOX, branchVoxels, LOOKS, type Look } from "./look";
 
-export type CamMode = "chase" | "level" | "fixed";
-export const CAM_MODES: readonly CamMode[] = ["chase", "level", "fixed"];
+export type CamMode = "chase" | "level" | "fixed" | "mouse";
+export const CAM_MODES: readonly CamMode[] = ["chase", "level", "fixed", "mouse"];
 
 const LOOK_KEY = "biblio.v1.treeLook";
 const CAM_KEY = "biblio.v1.treeCam";
@@ -51,7 +53,7 @@ const FOLIAGE_DENSITY_KEY = "biblio.v1.treeFoliageDensity";
 /** Movement mode: guided (W up / S down the branch, A/D turn) | free (the old steered heading). */
 const MOVE_KEY = "biblio.v1.treeMove";
 /** Fastest the camera follows a guided heading change (rad/s). */
-const CAM_TURN = 1.7;
+const CAM_TURN = 3.8;
 
 export interface HudInfo {
   animal: string;
@@ -81,11 +83,17 @@ export interface HudInfo {
   camera: CamMode;
   look: Look;
   nearLeaf: Leaf | null;
-  /** The side branch Shift would climb into right now. */
+  /** The side branch you would climb into right now (standing in its base zone). */
   climb: string | null;
+  /** True for an ordinary side branch (entered automatically when you walk tip-ward; Shift stays); false for a ground root / silk thread (Shift climbs in). */
+  climbAuto: boolean;
   /** Performance profile (quality | auto | fast) and, while the overlay (key I) is on, the live numbers. */
   perfProfile: PerfProfile;
   perf: PerfStats | null;
+  /** Click-to-walk is under way (any key stops it). */
+  walking: boolean;
+  /** What is under the pointer (a leaf's or a branch's title) and where, in pixels inside the view; null when nothing / not hovering. */
+  hover: { title: string; leaf: boolean; x: number; y: number } | null;
 }
 
 /** What the stats overlay shows (see tree/perf.ts for how to read it). */
@@ -145,6 +153,15 @@ export class TreeScene {
   /** Folder titles by branch id (set with setWorld) — for the sign / bubble labels. */
   titles: ReadonlyMap<string, string> = new Map();
   zoomMul = 1.5;
+  /** Mouse camera: the camera orbits the animal at these angles (yaw round the y axis, pitch above the horizon), set by dragging. */
+  orbitYaw = 0;
+  orbitPitch = 0.4;
+  /** Click-to-walk: the running autopilot (or null), and the move mode to give back when it ends. */
+  pilot: Autopilot | null = null;
+  /** Called when a walk ends: arrived / failed (with a reason) / cancelled by a key press or a click on nothing. */
+  onWalkEnd: ((status: PilotStatus | "cancelled", reason: string) => void) | null = null;
+  /** What the pointer is over (updated ~10 times a second while it moves). */
+  hover: { x: number; y: number; pick: Pick; title: string } | null = null;
   pixelated = false;
   /** Performance profile (key via the overlay): pixel-ratio cap, fps cap, adaptive resolution; remembered. */
   perfProfile: PerfProfile;
@@ -208,7 +225,16 @@ export class TreeScene {
   private hudAt = 0;
   private hudNear: Leaf | null = null;
   private hudClimb: string | null = null;
+  private hudClimbAuto = false;
   private foliageAcc = 0;
+  private raycaster = new THREE.Raycaster();
+  private hoverMarker: THREE.Sprite;
+  private goalMarker: THREE.Sprite;
+  private pilotRead = false;
+  private pilotRestore: MoveMode | null = null;
+  private hoverAt = 0;
+  private pointer = { down: false, button: 0, x: 0, y: 0, sx: 0, sy: 0, moved: false };
+  private elListeners: Array<[string, EventListener]> = [];
   private silkVer = -1;
   private ropeShown = false;
   private lenId = "";
@@ -288,7 +314,23 @@ export class TreeScene {
     this.reticle.renderOrder = 31;
     this.reticle.visible = false;
     this.silkLines.frustumCulled = false;
-    this.scene.add(this.previewDots, this.reticle, this.silkLines);
+    const ring = (color: number): THREE.Sprite => {
+      const cvs = document.createElement("canvas");
+      cvs.width = cvs.height = 64;
+      const cx2 = cvs.getContext("2d")!;
+      cx2.strokeStyle = "#fff";
+      cx2.lineWidth = 5;
+      cx2.beginPath();
+      cx2.arc(32, 32, 22, 0, Math.PI * 2);
+      cx2.stroke();
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cvs), color, transparent: true, depthTest: false, depthWrite: false, fog: false, opacity: 0.9 }));
+      sp.renderOrder = 29;
+      sp.visible = false;
+      return sp;
+    };
+    this.hoverMarker = ring(0xfff2b0);
+    this.goalMarker = ring(0x7dff7d);
+    this.scene.add(this.previewDots, this.reticle, this.silkLines, this.hoverMarker, this.goalMarker);
     this.resize();
     const on = (t: string, f: EventListener): void => {
       window.addEventListener(t, f);
@@ -302,6 +344,20 @@ export class TreeScene {
       if (!this.enabled) return;
       this.zoom(e.deltaY > 0 ? 1.12 : 1 / 1.12);
     }) as EventListener);
+    // the mouse: hover, click to walk, drag to orbit (mouse camera)
+    const el = this.renderer.domElement;
+    const onEl = (t: string, f: (e: PointerEvent) => void): void => {
+      el.addEventListener(t, f as EventListener);
+      this.elListeners.push([t, f as EventListener]);
+    };
+    onEl("pointerdown", (e) => this.pointerDown(e));
+    onEl("pointermove", (e) => this.pointerMove(e));
+    onEl("pointerup", (e) => this.pointerUp(e));
+    onEl("pointerleave", () => (this.hover = null));
+    onEl("contextmenu", (e) => e.preventDefault()); // right-drag orbits the mouse camera
+    onEl("dblclick", () => {
+      if (this.pilot?.goal.leafId) this.pilotRead = true; // double-click a leaf: walk there and read it
+    });
   }
 
   /** Back-compat for callers that only know "chase or not". */
@@ -473,6 +529,15 @@ export class TreeScene {
   }
 
   setCamera(mode: CamMode): void {
+    if (mode === "mouse" && this.camMode !== "mouse") {
+      // start the mouse camera where the camera is now
+      const head = this.creature.flight ? T3(this.creature.flight.p) : T3(bodyPoint(this.creature, 0).p);
+      const rel = this.camera.position.clone().sub(head);
+      if (rel.length() > 1) {
+        this.orbitYaw = Math.atan2(rel.z, rel.x);
+        this.orbitPitch = Math.max(-1.3, Math.min(1.3, Math.asin(rel.y / rel.length())));
+      }
+    }
     this.camMode = mode;
     save(CAM_KEY, mode);
   }
@@ -572,6 +637,11 @@ export class TreeScene {
     window.clearTimeout(this.buildTimer);
     cancelAnimationFrame(this.raf);
     for (const [t, f] of this.listeners) window.removeEventListener(t, f);
+    for (const [t, f] of this.elListeners) this.renderer.domElement.removeEventListener(t, f);
+    for (const m of [this.hoverMarker, this.goalMarker]) {
+      m.material.map?.dispose();
+      m.material.dispose();
+    }
     this.labels.clear();
     this.silkLines.geometry.dispose();
     (this.silkLines.material as THREE.Material).dispose();
@@ -600,6 +670,168 @@ export class TreeScene {
     this.renderer.domElement.style.height = "100%";
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+  }
+
+  // ---- mouse: hover, click to walk, drag to orbit --------------------------------------
+
+  /** Pixel position inside the view -> what is under it (a leaf or a branch surface), or null. */
+  pickAtPixel(x: number, y: number): Pick | null {
+    const el = this.renderer.domElement;
+    const w = el.clientWidth || 1;
+    const h = el.clientHeight || 1;
+    this.raycaster.setFromCamera(new THREE.Vector2((x / w) * 2 - 1, -(y / h) * 2 + 1), this.camera);
+    return pickAt(this.world, this.leafIdx, toV(this.raycaster.ray.origin), toV(this.raycaster.ray.direction));
+  }
+
+  /** A world point -> pixel position inside the view (null when it is behind the camera). For the tests and the HUD. */
+  screenOf(p: { x: number; y: number; z: number }): { x: number; y: number } | null {
+    const v = T3(p).project(this.camera);
+    if (v.z < -1 || v.z > 1) return null;
+    const el = this.renderer.domElement;
+    return { x: ((v.x + 1) / 2) * (el.clientWidth || 1), y: ((1 - v.y) / 2) * (el.clientHeight || 1) };
+  }
+
+  private local(e: PointerEvent): { x: number; y: number } {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  private pointerDown(e: PointerEvent): void {
+    if (!this.enabled) return;
+    const { x, y } = this.local(e);
+    this.pointer = { down: true, button: e.button, x, y, sx: x, sy: y, moved: false };
+    try {
+      this.renderer.domElement.setPointerCapture(e.pointerId);
+    } catch {
+      /* (synthetic events have no active pointer) */
+    }
+  }
+
+  private pointerMove(e: PointerEvent): void {
+    const { x, y } = this.local(e);
+    const p = this.pointer;
+    if (p.down) {
+      if (Math.hypot(x - p.sx, y - p.sy) > 5) p.moved = true;
+      // mouse camera: right-drag, or a left-drag that is more than a click, orbits the animal
+      if (this.camMode === "mouse" && this.enabled && (p.button === 2 || (p.button === 0 && p.moved))) this.orbit(x - p.x, y - p.y);
+      p.x = x;
+      p.y = y;
+      this.hover = null;
+      return;
+    }
+    p.x = x;
+    p.y = y;
+    if (!this.enabled) return;
+    const now = performance.now();
+    if (now - this.hoverAt < 100) return;
+    this.hoverAt = now;
+    const hit = this.pickAtPixel(x, y);
+    if (!hit) {
+      this.hover = null;
+      return;
+    }
+    const title = (hit.kind === "leaf" ? hit.leaf.title : this.titles.get(hit.b)) ?? "";
+    this.hover = { x, y, pick: hit, title };
+  }
+
+  private pointerUp(e: PointerEvent): void {
+    const p = this.pointer;
+    p.down = false;
+    try {
+      this.renderer.domElement.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    if (!this.enabled || e.button !== 0 || p.moved) return;
+    const { x, y } = this.local(e);
+    const hit = this.pickAtPixel(x, y);
+    if (!hit) {
+      this.cancelPilot();
+      return;
+    }
+    if (hit.kind === "leaf") this.startPilot({ b: hit.leaf.branchId, s: hit.leaf.s, th: hit.leaf.th, leafId: hit.leaf.id });
+    else this.startPilot({ b: hit.b, s: hit.s, th: hit.th });
+  }
+
+  /**
+   * Run the simulation (and a click-to-walk pilot) for `seconds` WITHOUT rendering: the same `input()` + `step()` the frame loop uses, in
+   * 1/60 s steps. For tests and tools: in software GL a frame takes seconds, so waiting for a walk to finish in real time is hopeless.
+   */
+  advance(seconds: number): void {
+    const dt = 1 / 60;
+    for (let t = 0; t < seconds; t += dt) {
+      step(this.world, this.creature, this.input(dt), dt);
+      if (!this.pilot && t > 0.5 && !this.creature.air) break; // (a finished walk: the rest would only idle)
+    }
+  }
+
+  /** Drag the mouse camera round the animal (pixels moved). */
+  orbit(dx: number, dy: number): void {
+    this.orbitYaw -= dx * 0.006;
+    this.orbitPitch = Math.max(-1.35, Math.min(1.4, this.orbitPitch + dy * 0.006));
+  }
+
+  /** Walk to a spot on a branch by itself (same keys a player would press; any key press stops it). Works in guided movement: the animal is switched to it for the walk. */
+  startPilot(goal: Goal): void {
+    const c = this.creature;
+    if (this.pilot) this.endPilot("cancelled", "new goal");
+    if (c.flight) {
+      this.onWalkEnd?.("failed", "fliers cannot be walked: land first");
+      return;
+    }
+    this.pilot = new Autopilot(goal);
+    this.pilotRead = false;
+    if (c.moveMode !== "guided") {
+      this.pilotRestore = c.moveMode;
+      c.moveMode = "guided";
+      c.omega = 0;
+      c.swing = 0;
+    }
+    const b = this.world.branches.get(goal.b);
+    if (b) {
+      this.goalMarker.position.copy(T3(surfacePoint(b, goal.s, goal.th, 8).p));
+      this.goalMarker.visible = true;
+    }
+  }
+
+  cancelPilot(): void {
+    if (this.pilot) this.endPilot("cancelled", "stopped");
+  }
+
+  private endPilot(status: PilotStatus | "cancelled", reason: string): void {
+    const pil = this.pilot;
+    this.pilot = null;
+    this.goalMarker.visible = false;
+    if (this.pilotRestore) {
+      this.creature.moveMode = this.pilotRestore;
+      this.creature.omega = 0;
+      this.creature.swing = 0;
+      this.pilotRestore = null;
+    }
+    if (status === "arrived" && pil?.goal.leafId && this.pilotRead) {
+      const leaf = this.leaves.find((l) => l.id === pil.goal.leafId);
+      if (leaf) this.onInteract?.(leaf);
+    }
+    this.pilotRead = false;
+    this.onWalkEnd?.(status, reason);
+  }
+
+  /** Keep a camera position out of the wood of the branch the animal is on and its neighbours (the mouse camera can go anywhere). */
+  private pushOutOfBark(pos: THREE.Vector3): void {
+    const b = this.world.branches.get(this.creature.head.b);
+    if (!b) return;
+    const near = [b, b.parent ? this.world.branches.get(b.parent) : undefined, ...b.next.map((id) => this.world.branches.get(id)), ...b.side.map((id) => this.world.branches.get(id))];
+    for (const br of near) {
+      if (!br || br.silk) continue;
+      const n = nearestOnBranch(br, toV(pos));
+      const f = frameAt(br, n.s);
+      const r = radiusAt(br, n.s) + 14;
+      if (n.dist < r) {
+        const away = pos.clone().sub(T3(f.p));
+        if (away.lengthSq() < 1e-6) away.set(0, 1, 0);
+        pos.copy(T3(f.p)).addScaledVector(away.normalize(), r);
+      }
+    }
   }
 
   // ---- input ----------------------------------------------------------------------
@@ -633,6 +865,7 @@ export class TreeScene {
     if (k === "k") this.cycleShadows();
     if (k === "p") this.setPixelated(!this.pixelated);
     if (k === "i") this.togglePerfOverlay();
+    if (k === "escape") this.cancelPilot();
     if (k === "+" || k === "=") this.zoom(1 / 1.2);
     if (k === "-" || k === "_") this.zoom(1.2);
     if (k === "e") {
@@ -703,9 +936,20 @@ export class TreeScene {
 
   // ---- loop -----------------------------------------------------------------------
 
-  private input(): Input {
+  private input(dt: number): Input {
     if (!this.enabled) return NO_INPUT;
     const k = this.keys;
+    if (this.pilot) {
+      // any movement / action key takes over at once; otherwise the pilot presses the keys
+      if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright", " ", "shift", "x"].some((x) => k.has(x))) this.endPilot("cancelled", "keys");
+      else {
+        const piloted = this.pilot.step(this.world, this.creature, dt);
+        if (this.pilot.status !== "walking") this.endPilot(this.pilot.status, this.pilot.reason);
+        this.leapQueued = false;
+        this.silkQueued = false;
+        return piloted;
+      }
+    }
     const input: Input = {
       forward: k.has("w") || k.has("arrowup"),
       back: k.has("s") || k.has("arrowdown"),
@@ -728,7 +972,7 @@ export class TreeScene {
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     const t = now / 1000;
-    step(this.world, this.creature, this.input(), dt);
+    step(this.world, this.creature, this.input(dt), dt);
     this.rig.update(this.world, this.creature, t, this.look);
     this.updateCamera(dt);
     // the sky and sun follow the camera, so they never come closer
@@ -755,6 +999,7 @@ export class TreeScene {
     this.updateShadows(headV);
     this.updatePreview();
     this.updateSilk();
+    this.updateMarkers();
     this.renderer.info.reset();
     const render0 = performance.now();
     this.renderer.render(this.scene, this.camera);
@@ -767,14 +1012,33 @@ export class TreeScene {
     if (now - this.hudAt >= 100) {
       this.hudAt = now;
       this.hudNear = this.nearestLeaf();
-      this.hudClimb = climbTarget(this.world, c)?.id ?? null;
+      const ct = climbTarget(this.world, c);
+      this.hudClimb = ct?.id ?? null;
+      this.hudClimbAuto = !!ct && !ct.root && !ct.silk;
     }
     this.onHud?.({
       animal: c.animal.name, animalId: c.animal.id, flying: !!c.flight, aiming: !!c.aim, dangling: !!c.silk, canSilk: !!c.animal.silk, autoAlign: c.autoAlign, moveMode: c.moveMode, labels: this.labelMode, foliage: this.foliageOn, foliageDensity: this.foliageDensity, shadows: this.shadows.quality, branch: c.head.b, th: c.head.th, phi: c.phi, grip: c.grip, gripOn: c.gripOn,
       airborne: !!c.air, reaching: !!c.reach, chase: this.chase, camera: this.camMode, look: this.look,
-      nearLeaf: this.hudNear, climb: this.hudClimb,
+      nearLeaf: this.hudNear, climb: this.hudClimb, climbAuto: this.hudClimbAuto,
       perfProfile: this.perfProfile, perf: this.perfOverlay ? this.stats : null,
+      walking: !!this.pilot,
+      hover: this.hover && this.hover.title ? { title: this.hover.title, leaf: this.hover.pick.kind === "leaf", x: this.hover.x, y: this.hover.y } : null,
     });
+  }
+
+  /** The ring under the pointer (what a click would walk to) and the ring on the goal of a walk, kept a readable size on screen. */
+  private updateMarkers(): void {
+    const h = this.hover;
+    this.hoverMarker.visible = !!h && !this.pointer.down;
+    if (h && this.hoverMarker.visible) {
+      this.hoverMarker.position.copy(T3(h.pick.p));
+      const k = Math.max(18, this.camera.position.distanceTo(this.hoverMarker.position) * 0.035);
+      this.hoverMarker.scale.set(k, k, 1);
+    }
+    if (this.goalMarker.visible) {
+      const k = Math.max(20, this.camera.position.distanceTo(this.goalMarker.position) * 0.04) * (1 + 0.12 * Math.sin(performance.now() / 180));
+      this.goalMarker.scale.set(k, k, 1);
+    }
   }
 
   /** Adaptive resolution: a few times a second, lower the pixel ratio while frames are slow, raise it back when they are clean. */
@@ -904,16 +1168,22 @@ export class TreeScene {
         let d = want - this.levelYaw;
         d = Math.atan2(Math.sin(d), Math.cos(d));
         const turn = d * Math.min(1, dt * 2.6);
-        this.levelYaw += c.moveMode === "guided" ? Math.max(-2 * dt, Math.min(2 * dt, turn)) : turn; // (guided: never faster than 2 rad/s)
+        this.levelYaw += c.moveMode === "guided" ? Math.max(-3.4 * dt, Math.min(3.4 * dt, turn)) : turn; // (guided: never faster than 3.4 rad/s)
       }
       const back = new THREE.Vector3(Math.cos(this.levelYaw), 0, Math.sin(this.levelYaw));
       wantPos = head.clone().addScaledVector(back, -250 * this.zoomMul * this.camScale);
       wantPos.y += 130 * this.zoomMul * this.camScale;
+    } else if (this.camMode === "mouse") {
+      // orbit: the camera sits at (yaw, pitch) round the animal, world up stays up; dragging the mouse changes the angles
+      const cp = Math.cos(this.orbitPitch);
+      const dist = 330 * this.zoomMul * this.camScale;
+      wantPos = head.clone().add(new THREE.Vector3(Math.cos(this.orbitYaw) * cp, Math.sin(this.orbitPitch), Math.sin(this.orbitYaw) * cp).multiplyScalar(dist));
+      this.pushOutOfBark(wantPos);
     } else {
       wantPos = head.clone().add(new THREE.Vector3(0, -30 * this.zoomMul * this.camScale, 470 * this.zoomMul * this.camScale));
     }
     wantPos.y = Math.max(wantPos.y, floor);
-    const k = Math.min(1, dt * 4);
+    const k = Math.min(1, dt * (this.camMode === "mouse" ? 12 : 4));
     this.camPos.lerp(wantPos, k);
     this.camUp.lerp(up, k).normalize();
     this.camLook.lerp(head, Math.min(1, dt * 7));

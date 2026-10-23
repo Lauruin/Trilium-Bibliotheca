@@ -337,14 +337,20 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
   run(c, { ...idle, forward: true }, 1);
   assert.ok(Math.abs(c.head.s - world.branches.get("up").total) < 1e-6, "dead end stops");
 
-  // side branch (the vertical "climb" leaves the trunk mid-way): hold Shift in its base to climb; otherwise walk past
+  // side branch (the vertical "climb" leaves the trunk mid-way): walking tip-ward in its base zone climbs it AUTOMATICALLY; Shift = stay on the trunk
   let passedBy = true, climbed = false;
   c = S.spawn(world, S.ANIMALS[0], "trunk", 900);
-  for (let t = 0; t < 3; t += 1 / 60) { S.step(world, c, { ...idle, forward: true }, 1 / 60); if (c.head.b !== "trunk") passedBy = false; }
-  assert.ok(passedBy, "without Shift you walk past the junction");
+  for (let t = 0; t < 3; t += 1 / 60) { S.step(world, c, { ...idle, forward: true, climb: true }, 1 / 60); if (c.head.b !== "trunk") passedBy = false; }
+  assert.ok(passedBy, "holding Shift you stay on the trunk and walk past the junction");
   c = S.spawn(world, S.ANIMALS[0], "trunk", 900);
-  for (let t = 0; t < 3; t += 1 / 60) { S.step(world, c, { ...idle, forward: true, climb: true }, 1 / 60); if (c.head.b === "climb") climbed = true; }
-  assert.ok(climbed, "Shift at the base climbs the side branch");
+  for (let t = 0; t < 3; t += 1 / 60) { S.step(world, c, { ...idle, forward: true }, 1 / 60); if (c.head.b === "climb") climbed = true; }
+  assert.ok(climbed, "walking tip-ward in the base zone climbs the side branch by itself");
+  // walking DOWN (phi = pi: base-ward) never turns you into a side branch
+  let divertedDown = false;
+  c = S.spawn(world, S.ANIMALS[0], "trunk", 1000);
+  c.autoAlign = false; c.phi = Math.PI;
+  for (let t = 0; t < 3; t += 1 / 60) { S.step(world, c, { ...idle, forward: true }, 1 / 60); if (c.head.b === "climb") divertedDown = true; }
+  assert.ok(!divertedDown, "walking base-ward past the junction never enters the side branch");
   // going back down returns to the PARENT at the attach point (not its end)
   c = S.spawn(world, S.ANIMALS[0], "climb", 30);
   c.autoAlign = false; // (with it the transfer lands at phi≈±π/2 and the animal would straighten out along the trunk)
@@ -525,14 +531,14 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
     assert.ok(["a", "gap"].includes(c.head.b));
   }
 
-  // climbTarget: the side branch Shift would climb into (standing in its base), else null; same rule as moveHead
+  // climbTarget: the side branch you would climb into (standing in its base; Shift = stay), else null; same rule as moveHead
   c = S.spawn(world, S.ANIMALS[0], "trunk", 300);
   assert.equal(S.climbTarget(world, c), null, "nothing to climb mid-trunk");
   let base = null;
   for (let s = 850; s < 1200 && !base; s += 2) { c.head.s = s; if (S.climbTarget(world, c)) base = s; }
   assert.ok(base !== null && S.climbTarget(world, c).id === "climb", "side branch found at its base");
   c = S.spawn(world, S.ANIMALS[0], "trunk", base);
-  S.step(world, c, { ...idle, forward: true, climb: true }, 1 / 60);
+  S.step(world, c, { ...idle, forward: true }, 1 / 60);
   assert.equal(c.head.b, "climb", "hint and behaviour agree");
   c = S.spawn(world, S.ANIMALS[0], "trunk", base);
   S.step(world, c, { ...idle, leap: true }, 1 / 60);
@@ -585,7 +591,7 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
   // a creature can be spawned and walk on the generated tree
   const c = S.spawn(lay.world, S.ANIMALS[0], "f1", 100);
   for (let t = 0; t < 3; t += 1 / 60) S.step(lay.world, c, { ...S.NO_INPUT, forward: true }, 1 / 60);
-  assert.ok(c.head.s > 100 && Number.isFinite(c.head.th));
+  assert.ok((c.head.b !== "f1" || c.head.s > 100) && Number.isFinite(c.head.th), "it walked on (walking tip-ward past a side branch's base may already have turned into that branch)");
   // big vault: 400 notes lays out fast
   const big = mkTree(Array.from({ length: 20 }, (_, i) => ({ id: "F" + i, kids: Array.from({ length: 19 }, (_, j) => ({ id: "x" + i + "_" + j })) })));
   const t0 = performance.now();
@@ -1794,8 +1800,9 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
       const f = W.frameAt(hub, hub.total);
       const d = W.frameAt(tb, 0).t;
       const dp = W.sub(d, W.mul(f.t, W.dot(d, f.t)));
-      c.head.th = Math.atan2(-W.dot(dp, f.u), W.dot(dp, f.b));
-      c.phi = Math.atan2(W.len(dp), W.dot(d, f.t));
+      // stand on the side of the hub the target trunk leaves from, facing up: the child on YOUR side of the bark wins (heading only breaks ties)
+      c.head.th = W.thetaOf(f, dp);
+      c.phi = 0;
       for (let i = 0; i < 240 && c.head.b === "root"; i++) S.step(w, c, { ...S.NO_INPUT, forward: true }, 1 / 60);
       assert.equal(c.head.b, target, `up from the hub onto ${target}`);
       assert.notEqual(c.head.b, "F0");
@@ -2664,7 +2671,7 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
     for (const t of cat.trail) if (t.surf) t.surf.th = -1;
     assert.equal(S.climbTarget(cw, cat)?.id, "climb", "the cat stands in the climb's base");
     let before = S.bodyPoint(cat, 0).p;
-    S.step(cw, cat, { ...idle, forward: true, climb: true }, 1 / 60);
+    S.step(cw, cat, { ...idle, forward: true }, 1 / 60);
     assert.equal(cat.head.b, "climb");
     assert.ok(Math.abs(cat.head.th) <= 1.2 + 1e-9 && fin(cat.phi), `right after the transfer: th ${cat.head.th.toFixed(2)} within the limit`);
     const th0 = cat.head.th, p0 = S.bodyPoint(cat, 0).p;

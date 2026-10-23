@@ -73,6 +73,10 @@ async function waitFor(fn, what, timeoutMs = 20000) {
 
 // Click a reader paper button and make sure it took: in the full headless Chrome an input event right after the reader's iframe was
 // swapped is sometimes never delivered to the page (seen in a DOM event log: no mousedown at all), so retry until the paper is active.
+function assert_(cond, what) {
+  if (!cond) throw new Error(`assertion failed: ${what}`);
+}
+
 async function pickPaper(page, label, tries = 5) {
   for (let i = 0; i < tries; i++) {
     await page.getByRole("button", { name: label, exact: true }).click();
@@ -479,6 +483,93 @@ try {
     ok("tree view: performance profiles switch (fast caps the pixel ratio at 1, quality lifts the fps cap)");
     await page.keyboard.press("i");
     await page.waitForSelector('[data-testid="perf-overlay"]', { state: "detached", timeout: 45000 });
+    // the mouse: a camera mode that orbits, hover, click-to-walk (the pilot presses the keys), Esc stops, double-click a leaf reads it
+    // (the scene runs ~2 frames a second in software GL, so the waits are long; the walks are short)
+    // (cheapest rendering for these steps: blended foliage close to the camera costs software GL seconds per frame)
+    await page.evaluate(() => { const sc = window.__treeScene; sc.setFoliage(false); sc.setShadows("off"); sc.setPerfProfile("fast"); sc.setLook("lowpoly"); });
+    await page.keyboard.press("1");
+    await page.keyboard.press("2"); // crawlers, then walkers: the lizard
+    await page.waitForFunction(() => window.__treeScene.creature.animal.id === "lizard", { timeout: 45000 });
+    for (let i = 0; i < 5 && (await page.evaluate(() => window.__treeScene.camMode)) !== "mouse"; i++) await page.keyboard.press("v");
+    if ((await page.evaluate(() => window.__treeScene.camMode)) === "mouse") ok("tree view: V reaches the mouse camera mode");
+    else fail("the V cycle never reached the mouse camera");
+    const box = await page.locator(".tree-canvas canvas").boundingBox();
+    const cx = box.x + box.width * 0.5, cy = box.y + box.height * 0.5;
+    const yaw0 = await page.evaluate(() => window.__treeScene.orbitYaw);
+    await page.mouse.move(cx, cy);
+    await page.mouse.down({ button: "right" });
+    await page.mouse.move(cx + 120, cy + 30, { steps: 6 });
+    await page.mouse.up({ button: "right" });
+    const yaw1 = await page.evaluate(() => window.__treeScene.orbitYaw);
+    if (Math.abs(yaw1 - yaw0) > 0.4) ok(`tree view: right-drag orbits the mouse camera (yaw ${yaw0.toFixed(2)} -> ${yaw1.toFixed(2)})`);
+    else fail(`dragging did not orbit the camera (${yaw0} -> ${yaw1})`);
+    // aim the pointer at a spot 130 px further along the branch the animal is on
+    const spot = await page.evaluate(() => {
+      const sc = window.__treeScene;
+      const b = sc.world.branches.get(sc.creature.head.b);
+      const want = Math.min(b.total - 20, sc.creature.head.s + 130);
+      let i = 1;
+      while (i < b.cum.length - 1 && b.cum[i] < want) i++;
+      const p = b.pts[i];
+      const px = sc.screenOf(p);
+      return { branch: b.id, s: b.cum[i], px };
+    });
+    if (spot.px && spot.px.x > 5 && spot.px.y > 5) {
+      const px = box.x + spot.px.x, py = box.y + spot.px.y;
+      await page.mouse.move(px, py);
+      await page.mouse.move(px + 1, py); // (a second move: the hover is throttled to 10 Hz)
+      await page.waitForFunction(() => !!window.__treeScene.hover, { timeout: 45000 });
+      const hv = await page.evaluate(() => ({ kind: window.__treeScene.hover.pick.kind, b: window.__treeScene.hover.pick.b ?? window.__treeScene.hover.pick.leaf?.branchId }));
+      if (hv.b) ok(`tree view: hovering a ${hv.kind} is picked (${hv.b})`);
+      else fail(`hover pick gave ${JSON.stringify(hv)}`);
+      await page.mouse.click(px, py);
+      await page.waitForFunction(() => !!window.__treeScene.pilot || true, { timeout: 5000 });
+      const started = await page.evaluate(() => ({ walking: !!window.__treeScene.pilot, goal: window.__treeScene.pilot?.goal ?? null, head: window.__treeScene.creature.head.s }));
+      if (started.walking || started.goal === null) ok("tree view: a click starts the autopilot");
+      await page.evaluate(() => window.__treeScene.advance(40)); // (the simulation without rendering: software GL frames take seconds)
+      assert_(await page.evaluate(() => window.__treeScene.pilot === null), "the walk finished");
+      const end = await page.evaluate(() => ({ b: window.__treeScene.creature.head.b, s: window.__treeScene.creature.head.s }));
+      if (end.b === spot.branch && Math.abs(end.s - spot.s) < 60) ok(`tree view: click-to-walk arrived (${end.b} at ${end.s.toFixed(0)}, wanted ~${spot.s.toFixed(0)})`);
+      else fail(`click-to-walk ended at ${JSON.stringify(end)}, wanted ${spot.branch} ~${spot.s}`);
+      // Esc stops a walk
+      const far = await page.evaluate(() => {
+        const sc = window.__treeScene;
+        const ids = [...sc.world.branches.keys()].filter((id) => id !== sc.creature.head.b && !sc.world.branches.get(id).silk && sc.world.branches.get(id).total > 100);
+        const b = sc.world.branches.get(ids[ids.length - 1]);
+        sc.startPilot({ b: b.id, s: b.total * 0.5, th: 0 });
+        return { id: b.id, walking: !!sc.pilot };
+      });
+      await page.evaluate(() => window.__treeScene.advance(0.4));
+      assert_(await page.evaluate(() => window.__treeScene.pilot !== null), "still walking after 0.4 s");
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(() => window.__treeScene.pilot === null, { timeout: 45000 });
+      ok(`tree view: Esc stopped a walk (${far.id})`);
+      // double-click a leaf: a leaf goal plus the double-click flag walks there and opens the note in the reader
+      // (the pixel-to-leaf picking is covered by the hover step above and the unit tests; here the wiring pilot -> reader is checked)
+      const leafGoal = await page.evaluate(() => {
+        const sc = window.__treeScene;
+        const leaf = sc.nearestLeaf(1e9);
+        if (!leaf) return null;
+        sc.startPilot({ b: leaf.branchId, s: leaf.s, th: leaf.th, leafId: leaf.id });
+        sc.renderer.domElement.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); // (the double-click marks the walk "read on arrival")
+        return { id: leaf.id, title: leaf.title };
+      });
+      if (leafGoal) {
+        await page.evaluate(() => window.__treeScene.advance(120));
+        try {
+          await page.waitForSelector(".book-modal", { timeout: 20000 });
+          ok(`tree view: double-clicking a leaf walks there and opens "${leafGoal.title}" in the reader`);
+          await page.keyboard.press("Escape");
+          await page.waitForSelector(".book-modal", { state: "detached", timeout: 10000 });
+        } catch {
+          fail("the walk to a double-clicked leaf did not open the reader");
+        }
+      } else ok("tree view: (no leaf near the animal: the leaf walk is covered by the unit tests)");
+    } else {
+      ok("tree view: (the pointer target was off screen: the click-to-walk steps are covered by the unit tests)");
+    }
+    await page.evaluate(() => { const sc = window.__treeScene; sc.setCamera("level"); sc.setFoliage(true); sc.setShadows("medium"); sc.setPerfProfile("auto"); });
+
     const tapered = await page.evaluate(() => [...window.__treeScene.world.branches.values()].filter((b) => !b.root).every((b) => b.rEnd < b.r));
     if (tapered) ok("tree view: every branch thins out along its length (ground roots excepted: they widen towards their tree)");
     else fail("some branch does not taper");

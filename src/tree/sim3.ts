@@ -158,7 +158,8 @@ const taper = (n: number, d0: number, step: number, w0: number, w1: number): Nod
 
 export const LIZARD: Animal = {
   id: "lizard", name: "Lizard",
-  nodes: [{ d: 0, w: 9 }, { d: 11, w: 7 }, { d: 24, w: 10 }, { d: 38, w: 11 }, { d: 52, w: 10 }, { d: 66, w: 11 }, ...taper(9, 80, 11, 9, 1)],
+  // (slimmed 2026-10-23: half-widths x0.78 of the first version, and scaled 1.5 instead of 1.7 in ANIMALS: "quite fat and big")
+  nodes: [{ d: 0, w: 7 }, { d: 11, w: 5.5 }, { d: 24, w: 7.8 }, { d: 38, w: 8.6 }, { d: 52, w: 7.8 }, { d: 66, w: 8.6 }, ...taper(9, 80, 11, 7, 1)],
   legs: [
     { node: 2, side: 1, group: 0, lead: 6 }, { node: 2, side: -1, group: 1, lead: 6 },
     { node: 5, side: 1, group: 1, lead: 4 }, { node: 5, side: -1, group: 0, lead: 4 },
@@ -314,7 +315,7 @@ export function scaled(a: Animal, k: number): Animal {
 }
 
 export const ANIMALS: Animal[] = [
-  scaled(LIZARD, 1.7), scaled(SNAKE, 1.5), scaled(ANT, 0.55), scaled(CAT, 1.9), scaled(SQUIRREL, 1.7),
+  scaled(LIZARD, 1.5), scaled(SNAKE, 1.5), scaled(ANT, 0.55), scaled(CAT, 1.9), scaled(SQUIRREL, 1.7),
   scaled(SPIDER, 1.6), scaled(BEE, 1.1), scaled(DRAGONFLY, 1.1), scaled(BLUEJAY, 1.6), scaled(JUMPER, 1.12),
 ];
 
@@ -457,6 +458,11 @@ export interface Creature {
   swing: number;
   /** Seconds left in which a thread's end can't be re-entered (set when you walk off a silk bridge). */
   threadCool?: number;
+  /**
+   * Auto-climb: the side branch whose base zone we just walked DOWN out of (returned to its parent). Until the animal steps out of that
+   * zone it is not entered again, so coming back down a branch and then walking on up the parent does not pull you into it a second time.
+   */
+  noAuto?: string;
   head: SurfacePos;
   phi: number;
   speedNow: number;
@@ -645,11 +651,11 @@ const animalWidth = (a: Animal): number => 2 * Math.max(...a.nodes.map((n) => n.
 /** Tuning of the guided move mode (exported for the tests / docs). Angles are in the unrolled surface: 0 = tip-ward, pi = base-ward, + = right. */
 export const GUIDED = {
   /** Heading turn rate = `animal.turnRate x gain x scale` rad/s; `scale = clamp(1 / fit, floor, 1)` (the free mode's width / radius rule, with a milder floor). */
-  gain: 2.3,
+  gain: 4.2,
   floor: 0.55,
   /** Heading error -> angular velocity (1/s); the angular velocity itself follows with `ease` (1/s): turns start and end smoothly. */
-  k: 4,
-  ease: 10,
+  k: 7,
+  ease: 18,
   /** Largest bend (rad) held while W/S and A/D are pressed together (on a thin branch the circumferential rate stays <= `thin`). */
   bend: 0.75,
   /** Heading offset (rad) from the branch axis while only A/D are held: the animal creeps around the branch. */
@@ -659,7 +665,7 @@ export const GUIDED = {
   /** Cap (rad/s) on how fast the animal may go round a branch (x 0.4..1: slower on a branch narrower than half its width). */
   thin: 1.6,
   /** Speed factor while the heading is a quarter turn (or more) from the wanted one: it swivels more than it walks. */
-  turnSpeed: 0.15,
+  turnSpeed: 0.35,
   /** Fraction of the turn rate used to straighten up while no key is held. */
   idle: 0.6,
 } as const;
@@ -874,6 +880,7 @@ export function climbTarget(world: World, c: Creature): Branch | null {
  */
 function sideEntry(world: World, b: Branch, s: number, th: number, threads: boolean): { ch: Branch; end: 0 | 1 | null } | null {
   const here = surfacePoint(b, s, th).p;
+  let other: { ch: Branch; end: 0 | 1 | null } | null = null;
   for (const id of b.side) {
     const ch = world.branches.get(id);
     if (!ch) continue;
@@ -881,13 +888,16 @@ function sideEntry(world: World, b: Branch, s: number, th: number, threads: bool
       if (!threads) continue;
       const d0 = ch.parent === b.id ? dist(here, ch.pts[0]) : Infinity;
       const d1 = ch.endLink?.b === b.id ? dist(here, ch.pts[ch.pts.length - 1]) : Infinity;
-      if (Math.min(d0, d1) < SILK_ENTRY) return { ch, end: d0 <= d1 ? 0 : 1 };
+      if (!other && Math.min(d0, d1) < SILK_ENTRY) other = { ch, end: d0 <= d1 ? 0 : 1 };
       continue;
     }
     const n = nearestOnBranch(ch, here);
-    if (n.dist < radiusAt(ch, n.s) * 0.8 + 4 && n.s < radiusAt(b, s) * 2.5 + ch.r) return { ch, end: null };
+    if (n.dist < radiusAt(ch, n.s) * 0.8 + 4 && n.s < radiusAt(b, s) * 2.5 + ch.r) {
+      if (!ch.root) return { ch, end: null }; // an ordinary side branch wins over a ground root / thread in the same spot
+      other ??= { ch, end: null };
+    }
   }
-  return null;
+  return other;
 }
 
 function updateShake(c: Creature): void {
@@ -927,11 +937,15 @@ function moveHead(world: World, c: Creature, dS: number, dW: number, travelled: 
     } else {
       const f = frameAt(b, b.total);
       const wh = headingFromFrame(f, th, c.phi);
+      const nrm = normalAt(f, th);
       let best: Branch | null = null;
       let bestDot = -Infinity;
       for (const id of b.next) {
         const ch = world.branches.get(id)!;
-        const d0 = dotV(wh, frameAt(ch, 0).t);
+        // the child on the side of the bark you stand on wins (like a side branch); the heading breaks ties between children on the same side
+        // (a ring of near-horizontal branches that all leave at the same angle off the end cannot be told apart by heading alone)
+        const ct = frameAt(ch, 0).t;
+        const d0 = 0.35 * dotV(wh, ct) + dotV(nrm, ct);
         if (d0 > bestDot) {
           bestDot = d0;
           best = ch;
@@ -946,15 +960,27 @@ function moveHead(world: World, c: Creature, dS: number, dW: number, travelled: 
       c.threadCool = 0.5;
       transfer(parent, clamp(b.attachS ?? 0, 0, parent.total), b.pts[0]); // a thread's start is its anchor
     }
-    else if (parent) transfer(parent, (b.attachS ?? parent.total) + s);
-    else s = 0;
-  } else if (c.climbHeld) {
-    // side branches: standing in a side branch's base while holding Shift turns onto it (you can still walk past)
+    else if (parent) {
+      c.noAuto = b.silk || b.root ? undefined : b.id; // we just came down out of this branch's base: do not walk straight back in
+      transfer(parent, (b.attachS ?? parent.total) + s);
+    } else s = 0;
+  } else {
+    // side branches. An ORDINARY side branch (not a ground root, not a silk thread) is entered AUTOMATICALLY while you walk tip-ward in
+    // the zone where it leaves the bark (that zone is the side of the bark it grows from: walking on the other side passes it);
+    // holding Shift means "stay on this branch". Walking down (S) never turns you into a side branch. Ground roots and silk threads
+    // keep the old rule: Shift climbs in (you can still walk past).
     const e = sideEntry(world, b, s, th, canUseThreads(c.animal) && !(c.threadCool && c.threadCool > 0));
-    if (e && e.end !== null) {
-      transfer(e.ch, e.end === 0 ? 0 : e.ch.total); // a thread: start walking along it, away from the end you stand at
-      c.phi = e.end === 0 ? 0 : Math.PI;
-    } else if (e) transfer(e.ch, nearestOnBranch(e.ch, surfacePoint(b, s, th).p).s);
+    if (e && (e.end !== null || e.ch.root)) {
+      if (c.climbHeld) {
+        if (e.end !== null) {
+          transfer(e.ch, e.end === 0 ? 0 : e.ch.total); // a thread: start walking along it, away from the end you stand at
+          c.phi = e.end === 0 ? 0 : Math.PI;
+        } else transfer(e.ch, nearestOnBranch(e.ch, surfacePoint(b, s, th).p).s);
+      }
+    } else if (e) {
+      if (e.ch.id !== c.noAuto && !c.climbHeld && dS > 0) transfer(e.ch, nearestOnBranch(e.ch, surfacePoint(b, s, th).p).s);
+    }
+    if (!e || e.ch.id !== c.noAuto) c.noAuto = undefined; // out of that zone (or somewhere else): auto-climb is armed again
   }
 
   if (lim !== undefined && Math.abs(th) > lim) {

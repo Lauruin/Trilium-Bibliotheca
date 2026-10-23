@@ -99,6 +99,9 @@ export function TreeView(props: {
     scene.setWorld(first.world, first.leaves, first.rootBranchId, 120, titlesOf(first, getState().tree));
     applied.current = first;
     scene.onInteract = (leaf) => openRef.current(leaf.id);
+    scene.onWalkEnd = (status, reason) => {
+      if (status === "failed") notify("warn", `Could not walk there: ${reason}`);
+    };
     let last = 0;
     scene.onHud = (h) => {
       const now = performance.now();
@@ -251,8 +254,13 @@ export function TreeView(props: {
             ))}
             <span className="dim-line"> · {hud.animal}{hud.airborne ? " · airborne" : ""}{hud.reaching ? " · reaching" : ""}</span>
           </div>
-          {(hud.nearLeaf || hud.climb || hud.aiming || hud.dangling || hud.canSilk) && (
+          {(hud.nearLeaf || hud.climb || hud.aiming || hud.dangling || hud.canSilk || hud.walking) && (
             <div className="tree-hint">
+              {hud.walking && (
+                <span>
+                  <b>Walking there</b> · any key or <b>Esc</b> stops{(hud.climb || hud.nearLeaf) && " · "}
+                </span>
+              )}
               {hud.dangling ? (
                 <span>
                   <b>On a thread</b>: S lower · W reel up · A/D swing · hold Space to pump · <b>X</b> let go
@@ -270,7 +278,12 @@ export function TreeView(props: {
                   <b>Aiming</b>: A/D turn · W/S raise/lower · release <b>Space</b> to jump · <b>Shift</b> cancels{(hud.climb || hud.nearLeaf) && " · "}
                 </span>
               )}
-              {hud.climb && (
+              {hud.climb && hud.climbAuto && (
+                <span>
+                  walking up enters “{title0(hud.climb)}” · hold <b>Shift</b> to stay on this branch
+                </span>
+              )}
+              {hud.climb && !hud.climbAuto && (
                 <span>
                   <b>Shift</b> climb into “{title0(hud.climb)}”
                 </span>
@@ -329,7 +342,7 @@ export function TreeView(props: {
             <button className={hud.moveMode === "free" && hud.autoAlign ? "active" : ""} disabled={hud.moveMode !== "free"} onClick={() => sceneRef.current?.toggleAutoAlign()} title={hud.moveMode === "free" ? "Gently straighten your heading along the branch when you are not steering (H)" : "Only used in free movement: guided movement always straightens along the branch (H)"}>
               auto-align: {hud.moveMode !== "free" ? "n/a" : hud.autoAlign ? "on" : "off"}
             </button>
-            <button onClick={() => sceneRef.current?.cycleCamera()} title="Camera: chase (rolls with the branch) · level (horizon stays level) · fixed (V)">
+            <button onClick={() => sceneRef.current?.cycleCamera()} title="Camera: chase (rolls with the branch) · level (horizon stays level) · fixed · mouse (drag to orbit round the animal; right-drag works too) (V)">
               camera: {hud.camera}
             </button>
             <button className={hud.perf ? "active" : ""} onClick={() => sceneRef.current?.togglePerfOverlay()} title="Performance panel: FPS, where the time goes, quality profile (I)">
@@ -337,6 +350,12 @@ export function TreeView(props: {
             </button>
           </div>
           <PerfOverlay hud={hud} scene={sceneRef.current} onClose={() => sceneRef.current?.togglePerfOverlay()} />
+          {hud.hover && (
+            <div className="tree-hover" style={{ left: hud.hover.x + 14, top: hud.hover.y + 18 }}>
+              {hud.hover.title}
+              <span className="dim-line"> · click to walk there{hud.hover.leaf ? ", double-click to read" : ""}</span>
+            </div>
+          )}
           {hud.gripOn && hud.grip < 0.999 && (
             <div className="tree-grip">
               <i style={{ width: `${hud.grip * 100}%`, background: hud.grip > 0.5 ? "#ffe080" : hud.grip > 0.25 ? "#ff9a40" : "#ff4a38" }} />
@@ -344,7 +363,7 @@ export function TreeView(props: {
           )}
           <div className="tree-controls">
             {hud.moveMode === "guided" ? "W up the branch · S down · A/D turn on it (left / right as you face)" : "W forward · A/D steer the heading"} · M move guided/free · hold Space to aim a jump (arc preview, auto-target), release to leap (snake: hold = reach, steer with WASD; squirrel: W dive / S flare; bee, dragonfly, blue jay: Space = take off, then Space up / Shift down or land; jay: W dive, S climb) ·
-            X = spider silk (drop, swing, climb the thread again) · Shift at a branch base = climb in · B edit this branch · Y layout forest/hub · E read · 1/2/3 animal category (again = next) · G grip {hud.gripOn ? "on" : "off"} · H auto-align (free mode) · N names · F foliage · K shadows · V camera · L look · I performance · wheel/+/− zoom · P pixels · T back to the library
+            X = spider silk (drop, swing, climb the thread again) · walking up past a side branch's base climbs it, hold Shift to stay (roots and threads: Shift climbs in) · B edit this branch · Y layout forest/hub · E read · click = walk there (double-click a leaf = read it; any key stops) · 1/2/3 animal category (again = next) · G grip {hud.gripOn ? "on" : "off"} · H auto-align (free mode) · N names · F foliage · K shadows · V camera (chase / level / fixed / mouse: drag to orbit) · L look · I performance · wheel/+/− zoom · P pixels · T back to the library
           </div>
         </>
       )}

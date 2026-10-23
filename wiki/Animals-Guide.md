@@ -53,7 +53,7 @@ Every animal is drawn in both [looks](Tree-View-Yggdrasil.md#looks) from the sam
 
 ## Controls common to all
 
-`W`/`S` walk up / down the branch, `A`/`D` turn left / right on it (guided movement, the default; `M` switches to the old free mode: forward along your heading, steer the head), `Space` (hold to aim, release to leap; or the special action below), `X` silk (spiders), `Shift` held at a side branch's base climbs into it, `E` reads the leaf next to you, `B` edits the branch you stand on, `G` toggles grip, `H` toggles auto-align (free mode), `M` guided / free movement.
+`W`/`S` walk up / down the branch, `A`/`D` turn left / right on it (guided movement, the default; `M` switches to the old free mode: forward along your heading, steer the head), `Space` (hold to aim, release to leap; or the special action below), `X` silk (spiders), walking up past a side branch's base climbs into it by itself (`Shift` held = stay on this branch), a mouse click walks to that spot (double-click a leaf to read it), `E` reads the leaf next to you, `B` edits the branch you stand on, `G` toggles grip, `H` toggles auto-align (free mode), `M` guided / free movement.
 Full table: [Tree View](Tree-View-Yggdrasil.md#controls).
 
 ## Mechanics
@@ -89,7 +89,7 @@ If the head touches another branch it **bridges** onto it and you carry on from 
 - `Space` **held pumps** the swing along your facing,
 - `X` again **lets go**: an ordinary fall (never a glide).
 
-If you touch a branch while hanging or after letting go, you **land** there and the rope becomes a **bridge**; if you let go in mid-air the thread stays as a **free thread**. Either way it is now a real branch (radius 2.5) you can walk and climb: off its start you step onto its anchor branch, off its end onto the branch it ends on, and `Shift` near either end climbs onto it.
+If you touch a branch while hanging or after letting go, you **land** there and the rope becomes a **bridge**; if you let go in mid-air the thread stays as a **free thread**. Either way it is now a real branch (radius 2.5) you can walk and climb: off its start you step onto its anchor branch, off its end onto the branch it ends on, and `Shift` near either end climbs onto it (threads and ground roots keep the Shift rule).
 **Who can use threads:** the clingers (spider, jumping spider) and every animal with a half-width of 6 or less (ant, bee, dragonfly). The lizard, cat, snake, squirrel and jay ignore threads completely (they pass through them). Threads exist **until you reload the page**; they are never written to your vault. They follow edits of the tree while the page is open.
 
 ### Glide (flying squirrel)
@@ -123,7 +123,7 @@ A flier whose grip ran out (a slip fall) can press `Space` to open its wings whi
 - **Crossing a gap between branches:** the snake and the ant bridge it with `Space` (the ant only short gaps); the cat leaps furthest; the jumping spider jumps far for its size; the squirrel glides; any flier just flies; a spider can swing across on silk.
 - **Aiming:** a green reticle means the auto-target found a landing; if it is orange, turn or tilt until it is white or green, then release.
 - **Underneath a branch:** the spiders hang for free. For others, `G` off lets you explore the underside without slipping, or keep moving; the snake is safe while any part of it is on top.
-- **Climbing a trunk:** any animal can walk straight up a vertical trunk without slipping. Use `Shift` at the base of a side branch to turn onto it; the on-screen hint tells you when.
+- **Climbing a trunk:** any animal can walk straight up a vertical trunk without slipping. Walking up past a side branch's base turns you onto it by itself when you are on the side of the bark where it grows; hold `Shift` to stay on the trunk. The on-screen hint tells you what the branch ahead will do.
 - **Between trees (forest layout):** crawlers and walkers can walk down a trunk, along its **ground root** and onto the central stump with no extra key; to go from the stump into another root hold `Shift` at the stump's base (the hint line offers it), then walk up that trunk. The cat clings only to the top half of a branch, so it can't stand on every side of the stump. Fliers just fly between the trees. See [Tree View](Tree-View-Yggdrasil.md#layout-layouttree-a-forest-or-the-hub).
 - **Small animals on thin branches:** the ant and the spiders fit twigs that make a lizard swivel slowly. In guided movement a fat animal on a twig turns more slowly (it never corkscrews); in free movement leave auto-align on.
 - **Scouting the whole tree:** zoom out (`-`) and take the jay, or the dragonfly for precise hovering. Press `N` to show branch names while you fly.
