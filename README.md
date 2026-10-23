@@ -12,7 +12,12 @@ Formerly the SiYuan biblio plugin idea - **SiYuan is abandoned; Trilium is the t
 >
 > **About this project:** Bibliotheca is **entirely vibe-coded** (written with AI coding agents, steered by one person) and is developed **on a whim**: no roadmap promises, no support guarantees, updates whenever I feel like it. Fork it and take it your own way; that is what it is for.
 
-> **Status: v0.1, a first vertical slice.** Working and tested against a disposable Trilium **v0.106.0**. Rough edges and missing pieces are listed under [Status and limitations](#status-and-limitations).
+> **⚠ Alpha software - read this before you connect a vault you care about.**
+> Bibliotheca is **alpha**. There is **no guarantee about the safety of the Trilium database it is connected to**: it is vibe-coded, automatically tested only against a *disposable* Trilium **v0.106.0**, and parts of it **write to your vault** (never on connecting, only when you use a feature that saves something).
+> The author has used it against a real vault and **has not run into any problem so far**, but that is one person's experience, not a promise. What exactly is read and written is listed in [Before you connect](#before-you-connect-what-the-app-reads-and-writes) below.
+> **Make a Trilium backup first**, and keep it. As far as I know an ETAPI token cannot be limited to read-only, so whoever holds the token (and this browser's localStorage holds it) has the same power over your notes as the app does.
+>
+> **Status: v0.1, a first vertical slice.** Rough edges and missing pieces are listed under [Status and limitations](#status-and-limitations).
 > **Documentation:** the [`wiki/`](wiki/Home.md) folder has guides for every part (start at [Home](wiki/Home.md)); [`AGENTS.md`](AGENTS.md) is the agent-oriented reference; [`LOCAL-TESTING.md`](LOCAL-TESTING.md) is the short run-it-yourself guide; [`tools/README.md`](tools/README.md) documents every script.
 
 ## What it does
@@ -53,6 +58,35 @@ Your vault as a **forest**, in a **voxel** (default) or **low-poly** look (`L`, 
 - **Local snapshot.** The tree snapshot persists in localStorage; when the server is unreachable the world opens from it, with an "offline - cached" indicator. (It is a fallback: the world appears after a successful walk, otherwise from the snapshot.)
 - **Phone** (parked - works in principle, not actively tested): an installable PWA with an Android share target (share a page or text into capture) and on-screen touch controls (`?touch=1` to try on a desktop). Needs HTTPS, see below.
 - **Look.** A rustic library: oak floors, panelling, windows with light shafts, candles, rugs and furniture, all drawn in code (no binary assets).
+
+## Before you connect: what the app reads and writes
+
+Everything below is checked against the code (`src/lib/trilium/client.ts` is the only module that talks to Trilium; the write paths are `src/lib/labels.ts` and `src/lib/capture.ts`) as of this version. It talks to Trilium only through ETAPI.
+
+**When you connect (read-only; nothing is written).**
+- It checks the token with `GET /etapi/app-info`.
+- It then walks your vault breadth-first from the root note you configured (default `root`): one `GET /etapi/notes/{id}` per note, **at most 400 notes and depth 8**, skipping Trilium's internal `_hidden` subtree. That reads titles, note types, mimes, labels/attributes and child ids, not note content.
+- A snapshot of that structure (titles, ids, labels, no note text) is kept in this browser's localStorage so the world can open offline.
+
+**While you use it (reads).** Note text is fetched when you open a note in the reader, and the tree view fetches content in the background only to measure how long each note is (leaf size; only the number is cached, never the text). Search uses `GET /etapi/notes?search=...`.
+
+**Writes: only when you trigger them.**
+
+| What you do | What gets written to Trilium |
+|---|---|
+| Log in with a password in Settings (optional; you can paste a token instead) | `POST /etapi/auth/login`: Trilium **mints an ETAPI token** (as far as I know a new one per login, listed under Options -> ETAPI). Pasting an existing token writes nothing. |
+| Quick capture (`C`) | On first use, a new text note titled **Inbox** under the root note, carrying the label `#biblio_inbox` (the app searches for that label first and reuses an existing one). Every capture then creates **one new text note** under the Inbox from the text you typed. |
+| Build mode (`B`), dragging rooms in the overview, saving in the tree's branch panel | **Labels only:** `biblio_*` labels are created, changed or removed on **existing** notes. Undo restores them. |
+
+The `biblio_*` labels it writes: `biblio_x`, `biblio_y` (room position), `biblio_theme`, `biblio_wing`, `biblio_wall`, `biblio_furniture`, `biblio_rug`, `biblio_case`, `biblio_span` (build mode), `biblio_species`, `biblio_blen`, `biblio_bthick`, `biblio_btaper`, `biblio_bspin`, `biblio_bpitch`, `biblio_bat`, `biblio_bbend`, `biblio_bwave`, `biblio_bwfreq`, `biblio_bwfn` (tree branches). The write code refuses any label name that does not start with `biblio_`, touches only the note's **own** labels (never inherited ones), re-reads the note right before writing, and tidies up duplicate `biblio_` labels it finds. `biblio_lat` (a pinned leaf spot) and `biblio_leaf` / `#color` are only **read**.
+
+**What it never does (in this version):** rename, move or delete notes, change any note's title or content, touch labels or relations that are not `biblio_*`, or send your data anywhere but to the Trilium URL you entered (a note whose HTML embeds a remote image makes your browser fetch that image, as any web page would; external links ask before opening). (The planned editor will change the first part of that, and is planned to ask for confirmation before saving.)
+
+**What it keeps in your browser (localStorage):** the server URL, **the ETAPI token in plain text**, the structure snapshot above, the leaf-size cache (numbers), and your reader and view preferences. The undo history lives in memory only and is gone when you reload.
+
+**What you will see inside Trilium:** the `biblio_*` labels show up as ordinary labels in a note's attributes and sync like any attribute; an **Inbox** note and the notes you captured. To remove the app's traces, delete the Inbox (and captured notes, if you want them gone) and remove the `biblio_*` labels, for example by searching `#biblio_x` and so on and using Trilium's bulk actions to delete the label.
+
+The automated tests only ever run against a throwaway Trilium started from `compose.yml`, never against a real vault.
 
 ## Quick start
 
@@ -162,7 +196,7 @@ What the app remembers about the vault (room positions, looks, the inbox marker)
 
 - The ETAPI token is stored in this browser's localStorage - a deliberate v1 trade-off since the app has no backend of its own. Anyone with access to that browser profile can read the token. A widget wrapper inside Trilium (planned, later) would remove the token from the picture entirely.
 - Note content is rendered in an iframe with `sandbox="allow-scripts"` (no `allow-same-origin`: opaque origin, no access to the app) and a Content-Security-Policy that lets only one nonce'd script run - ours, which just reports link clicks. Scripts, inline handlers and `javascript:` links inside a note are blocked, so note HTML cannot execute anything.
-- The app writes two kinds of data: `biblio_*` labels (room layout and build-mode looks - the build code refuses to write any other label name), and new notes created by quick capture (plus the `biblio_inbox` label on the Inbox). Existing note content, titles and structure are never modified.
+- The app writes two kinds of data: `biblio_*` labels (room layout, build-mode looks and tree branch properties - the build code refuses to write any other label name), and new notes created by quick capture (plus the `biblio_inbox` label on the Inbox); logging in with a password also makes Trilium mint an ETAPI token. Existing note content, titles and structure are never modified. The full list is under [Before you connect](#before-you-connect-what-the-app-reads-and-writes); this is **alpha software** with no guarantee about the safety of the connected database, so back it up first.
 - The compose.yml mock sets `corsAllowOrigin=*` and a known password - **for the throwaway test instance only**. Never do this on a real vault, and never point the tools in `tools/` at one.
 
 ## License
