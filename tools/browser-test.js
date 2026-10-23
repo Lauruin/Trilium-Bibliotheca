@@ -261,7 +261,11 @@ try {
     await page.locator(".search-results li button").first().click();
     await page.waitForSelector("iframe.book-frame", { timeout: 10000 });
     const frame = page.frameLocator("iframe.book-frame");
-    await frame.getByText("the B note").click();
+    // (the click can land before the sandboxed page's script is listening: retry it)
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await frame.getByText("the B note").click();
+      if (await page.getByRole("heading", { name: `linktargetB${tag}` }).waitFor({ timeout: 4000 }).then(() => true, () => false)) break;
+    }
     await page.getByRole("heading", { name: `linktargetB${tag}` }).waitFor({ timeout: 10000 });
     ok("reader: internal link navigated inside the reader");
     await page.getByRole("button", { name: "◀" }).click();
@@ -609,6 +613,8 @@ try {
     else fail("T left the tree view");
 
     // 2d. The tree is the START view; the library is the door on the shrine; the wisp is the search
+    // (software GL: the world tree makes the voxel look + canopy very slow to draw; the steps below are about behaviour, not looks)
+    await page.evaluate(() => { try { localStorage.setItem("biblio.v1.treeLook", "lowpoly"); localStorage.setItem("biblio.v1.treeFoliage", "off"); localStorage.setItem("biblio.v1.treePerf", "fast"); } catch { /* ignore */ } });
     await page.goto(APP_URL, { waitUntil: "domcontentloaded" });
     await page.waitForSelector(".tree-view .tree-canvas canvas", { timeout: 90000 });
     await page.waitForFunction(() => window.__treeScene && window.__treeScene.shrine && window.__treeScene.leaves.length > 0, { timeout: 90000 });
@@ -627,19 +633,49 @@ try {
     await page.getByRole("dialog", { name: "Shrine" }).waitFor({ timeout: 15000 });
     if ((await page.locator('[data-testid="shrine-library"]').count()) > 0 && (await page.locator('[data-testid="shrine-wisp"]').count()) > 0) ok("E at the altar opens the shrine panel (library door + wisp sections)");
     else fail("shrine panel lacks its sections");
+    // Save in Trilium: off by default (nothing written), switching on only reads, "save now" creates the Yggdrasil folder + save note
+    {
+      const search = async (q) => (await (await fetch(`${TRILIUM_URL}/etapi/notes?search=${encodeURIComponent(q)}`, { headers: { Authorization: TRILIUM_TOKEN } })).json()).results ?? [];
+      if (await page.locator('[data-testid="sync-toggle"]').isChecked()) fail("saving in Trilium is on by default");
+      else ok("shrine: saving in Trilium is OFF by default");
+      if ((await search("#biblio_yggdrasil")).length === 0) ok("shrine: no Yggdrasil folder exists in the vault before it is switched on");
+      else fail("an Yggdrasil folder exists already (left by an earlier run?)");
+      await page.locator('[data-testid="sync-toggle"]').check();
+      await page.waitForSelector('[data-testid="sync-msg"]', { timeout: 15000 });
+      if ((await search("#biblio_yggdrasil")).length === 0) ok("shrine: switching it on only reads (still no folder)");
+      else fail("switching on wrote to the vault");
+      await page.getByRole("button", { name: "save now" }).click();
+      await page.waitForFunction(() => /Saved to Trilium/.test(document.querySelector('[data-testid="sync-msg"]')?.textContent ?? ""), { timeout: 20000 });
+      const saves = await search("#biblio_save");
+      const folders = await search("#biblio_yggdrasil");
+      if (saves.length === 1 && folders.length === 1) ok("shrine: save now created the Yggdrasil folder and the save note");
+      else fail(`expected one folder and one save note, got ${folders.length} / ${saves.length}`);
+      // the library walk keeps the folder out: the tree must not contain it
+      const inTree = await page.evaluate((id) => !!window.__treeScene.world.branches.get(id) || window.__treeScene.leaves.some((l) => l.id === id), folders[0]?.noteId);
+      if (!inTree) ok("the Yggdrasil folder is not part of the forest");
+      else fail("the Yggdrasil folder shows up in the tree");
+      // clean up the mock: switch it off again and remove what the test created
+      await page.locator('[data-testid="sync-toggle"]').uncheck();
+      for (const n of folders) await fetch(`${TRILIUM_URL}/etapi/notes/${n.noteId}`, { method: "DELETE", headers: { Authorization: TRILIUM_TOKEN } });
+      if ((await search("#biblio_yggdrasil")).length === 0) ok("(test cleanup: the Yggdrasil folder was removed from the mock)");
+    }
     await page.keyboard.press("Escape");
     await page.getByRole("dialog", { name: "Shrine" }).waitFor({ state: "detached", timeout: 10000 });
     // the wisp perched on its lantern post: a click opens the search; results can be walked to / lit
     await page.evaluate(() => { const s = window.__treeScene; s.moveToPad("wisp"); s.setCamera("fixed"); s.zoomMul = 0.8; });
     await page.waitForFunction(() => { const s = window.__treeScene; const p = s.wispPoint, q = s.shrine.perch; return Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z) < 30; }, { timeout: 90000 });
-    await page.waitForTimeout(1500);
+    await page.waitForFunction(() => { const s = window.__treeScene; const p = s.screenOf(s.wispPoint); return !!p && p.x > 20 && p.y > 20 && p.x < 1200 && p.y < 700; }, { timeout: 120000 }); // (the camera has caught up, slow in software GL)
+    await page.waitForTimeout(800);
     const wp = await page.evaluate(() => { const s = window.__treeScene; return s.screenOf(s.wispPoint); });
     const cb = await page.locator(".tree-canvas canvas").boundingBox();
     if (wp && cb) {
       await page.mouse.move(cb.x + wp.x, cb.y + wp.y);
       await page.waitForFunction(() => window.__treeScene.overWisp(...Object.values(window.__treeScene.screenOf(window.__treeScene.wispPoint))), { timeout: 5000 }).catch(() => {});
       await page.mouse.click(cb.x + wp.x, cb.y + wp.y);
-      await page.getByRole("dialog", { name: "Search" }).waitFor({ timeout: 15000 });
+      await page.getByRole("dialog", { name: "Search" }).waitFor({ timeout: 15000 }).catch(async (e) => {
+        console.log("DBG dialogs:", await page.locator('[role="dialog"]').evaluateAll((els) => els.map((x) => x.getAttribute("aria-label"))), "wisp", JSON.stringify(wp), "over", await page.evaluate(() => { const s = window.__treeScene; const p = s.screenOf(s.wispPoint); return [p, p && s.overWisp(p.x, p.y), s.enabled]; }));
+        throw e;
+      });
       ok("clicking the wisp on its lantern post opens the search");
       await page.fill(".search-form input", "Weekly review");
       await page.locator(".search-form button[type=submit]").click();

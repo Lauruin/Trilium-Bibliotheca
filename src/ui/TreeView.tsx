@@ -21,24 +21,29 @@ import { planChanges, recalcAll, saveChanges, setPending, type Pending } from ".
 import { journal, undoEdit } from "../lib/worldedit";
 import { getClient, getState, notify, useAppStore } from "../state/store";
 import type { LibraryTree } from "../types";
+import { dirty, loadNow, saveNow, setSyncOn, syncOn } from "../state/savestore";
 import { setTreeBridge } from "../tree/bridge";
+import { PLACES, placeOf } from "../tree/places";
 import { BranchPanel } from "./BranchPanel";
 import { PerfOverlay } from "./PerfOverlay";
 import { ShrinePanel, type ShrineSection } from "./ShrinePanel";
 
-/** A branch's display name: the folder's title ("Library" for the root); a ground root (`root:<tree>`) is "<tree> roots". */
+/** A branch's display name: the folder's title ("Yggdrasil" for the root: the world tree); a crown limb is its place's title; a ground root (`root:<tree>`) is "<tree> roots". */
 function branchTitle(id: string, tree: LibraryTree | null): string {
-  if (tree && id === tree.rootNoteId) return "Library";
+  if (id.startsWith("place:")) return PLACES.find((p) => `place:${p.id}` === id)?.title ?? id.slice(6); // a crown limb of the world tree
+  if (tree && id === tree.rootNoteId) return "Yggdrasil";
   if (id.startsWith("root:")) return `${tree?.notes[id.slice(5)]?.title ?? id.slice(5)} roots`;
   return tree?.notes[id]?.title ?? id;
 }
 
-/** Folder titles by branch id (the root folder is "Library"; ground roots are left out so they get no name sign). */
+/** Folder titles by branch id (the root is "Yggdrasil"; ground roots are left out so they get no name sign). */
 function titlesOf(layout: TreeLayout, tree: LibraryTree | null): Map<string, string> {
   const titles = new Map<string, string>();
   for (const [id, b] of layout.world.branches) if (!b.root) titles.set(id, branchTitle(id, tree)); // ground roots get no sign / bubble
   return titles;
 }
+
+const client0 = (): ReturnType<typeof getClient> => getClient();
 
 export function TreeView(props: {
   /** Keyboard input is ignored while a dialog is open. */
@@ -63,11 +68,13 @@ export function TreeView(props: {
   const [busy, setBusy] = useState(false);
   /** The shrine panel (E at the altar). */
   const [shrineOpen, setShrineOpen] = useState(false);
+  /** Saving progress + settings in Trilium (off by default; the shrine's Save section). */
+  const [sync, setSync] = useState({ on: syncOn(), busy: false, msg: "" });
   const deferredPending = useDeferredValue(pending);
   /** forest (every top-level folder its own tree, joined by ground roots) or hub (the original); key Y, remembered. */
   const [mode, setMode] = useState<LayoutMode>(loadLayoutMode);
   const layout = useMemo(
-    () => (tree ? layoutTree(tree, { mode, overrides: editId && Object.keys(deferredPending).length > 0 ? new Map([[editId, deferredPending]]) : undefined }) : null),
+    () => (tree ? layoutTree(tree, { mode, places: PLACES, overrides: editId && Object.keys(deferredPending).length > 0 ? new Map([[editId, deferredPending]]) : undefined }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tree, version, editId, deferredPending, mode],
   );
@@ -116,7 +123,11 @@ export function TreeView(props: {
     scene.onPad = (id) => {
       if (id === "door") propsRef.current.onEnterLibrary();
       else if (id === "wisp") propsRef.current.onOpenSearch();
-      else setShrineOpen(true);
+      else if (id === "altar") setShrineOpen(true);
+      else {
+        const place = placeOf(id);
+        notify("info", place ? `${place.title}: ${place.help}` : "Nothing here yet.");
+      }
     };
     setTreeBridge({ has: (id) => scene.locate(id) !== null, walkTo: (id) => scene.walkToNote(id), lightTo: (id) => scene.lightNote(id) });
     scene.onWalkEnd = (status, reason) => {
@@ -133,6 +144,7 @@ export function TreeView(props: {
     sceneRef.current = scene;
     (window as unknown as { __treeScene: TreeScene }).__treeScene = scene;
     scene.start();
+    if (syncOn() && client0()) void loadNow(client0()!).then((r) => r.ok && r.what === "loaded" && scene.reloadPrefs());
     // leaf size = note length: measured lazily (the first batch is the cache), applied as it arrives
     const ctrl = new AbortController();
     const client = getClient();
@@ -151,6 +163,7 @@ export function TreeView(props: {
       }).catch((e) => console.warn("[tree] leaf sizes", e));
     }
     return () => {
+      if (syncOn() && dirty() && client0()) void saveNow(client0()!, getState().rootNoteId); // leaving the tree: keep what changed
       ctrl.abort();
       setTreeBridge(null);
       scene.dispose();
@@ -235,6 +248,22 @@ export function TreeView(props: {
     if (sceneRef.current) sceneRef.current.enabled = props.enabled && !shrineOpen;
   }, [props.enabled, layout, shrineOpen]);
 
+  const readOnlyHost = !!state.settings?.proxy && state.host.server?.readOnly === true;
+  const doSave = async (): Promise<void> => {
+    const client = getClient();
+    if (!client) return;
+    setSync((x) => ({ ...x, busy: true, msg: "" }));
+    const r = await saveNow(client, getState().rootNoteId);
+    setSync((x) => ({ ...x, busy: false, msg: r.ok ? "Saved to Trilium." : `Could not save: ${r.message}` }));
+  };
+  const doLoad = async (): Promise<void> => {
+    const client = getClient();
+    if (!client) return;
+    setSync((x) => ({ ...x, busy: true, msg: "" }));
+    const r = await loadNow(client);
+    if (r.ok && r.what === "loaded") sceneRef.current?.reloadPrefs();
+    setSync((x) => ({ ...x, busy: false, msg: !r.ok ? `Could not load: ${r.message}` : r.what === "loaded" ? "Loaded from Trilium and merged." : "Nothing is saved in Trilium yet." }));
+  };
   const shrineSections: ShrineSection[] = [
     {
       id: "library",
@@ -276,6 +305,40 @@ export function TreeView(props: {
         </div>
       ),
     },
+    {
+      id: "save",
+      title: "Save in Trilium",
+      help: "Keep your view settings and progress in a note inside a folder called “Yggdrasil” in your vault, so they follow you between devices. Off by default: nothing is written until you switch it on. The first save creates the folder (labelled biblio_yggdrasil) and a code note “Yggdrasil save” (biblio_save); the app keeps that folder out of your library and trees.",
+      body: (
+        <>
+          <label className="shrine-row">
+            <input
+              type="checkbox"
+              data-testid="sync-toggle"
+              checked={sync.on}
+              disabled={readOnlyHost || sync.busy}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setSyncOn(on);
+                setSync((x) => ({ ...x, on, msg: "" }));
+                if (on) void doLoad(); // switching on only READS: it merges what is already saved
+              }}
+            />{" "}
+            save progress and settings in Trilium
+          </label>
+          {readOnlyHost && <p>This server is read-only: nothing can be saved to it.</p>}
+          <div className="shrine-row">
+            <button disabled={!sync.on || sync.busy || readOnlyHost} onClick={() => void doSave()}>
+              save now
+            </button>
+            <button disabled={!sync.on || sync.busy} onClick={() => void doLoad()}>
+              load now
+            </button>
+          </div>
+          {sync.msg && <p data-testid="sync-msg">{sync.msg}</p>}
+        </>
+      ),
+    },
   ];
 
   const title0 = (id: string): string => tree?.notes[id]?.title ?? id;
@@ -287,7 +350,7 @@ export function TreeView(props: {
       <div ref={hostRef} className="tree-canvas" />
       {editId && layout?.info.get(editId) && (
         <BranchPanel
-          title={`${editId === tree?.rootNoteId ? "Library" : tree?.notes[editId]?.title ?? editId} — branch properties`}
+          title={`${editId === tree?.rootNoteId ? "Yggdrasil" : tree?.notes[editId]?.title ?? editId} — branch properties`}
           info={layout.info.get(editId)!}
           pending={pending}
           kind={editId === tree?.rootNoteId ? "hub" : layout.parentOf.get(editId) === tree?.rootNoteId ? "trunk" : "branch"}
@@ -306,7 +369,15 @@ export function TreeView(props: {
           onClose={closeEditor}
         />
       )}
-      {shrineOpen && <ShrinePanel sections={shrineSections} onClose={() => setShrineOpen(false)} />}
+      {shrineOpen && (
+        <ShrinePanel
+          sections={shrineSections}
+          onClose={() => {
+            setShrineOpen(false);
+            if (syncOn() && dirty()) void doSave(); // closing the shrine keeps what changed
+          }}
+        />
+      )}
       {error && <p className="error-line tree-error">{error}</p>}
       {hud && (
         <>

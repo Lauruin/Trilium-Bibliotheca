@@ -49,6 +49,10 @@ export const LABELS = {
   span: "biblio_span",
   /** Optional leaf style override on a note (tree view): broad|needle|maple|blossom|fruit. */
   leaf: "biblio_leaf",
+  /** The Yggdrasil data folder (app data: the save note, ...): kept out of the library and the forest. Auto-created only when saving to Trilium is switched on. */
+  yggdrasil: "biblio_yggdrasil",
+  /** The note inside it that holds the app's save (settings, unlocks, progress; JSON). */
+  save: "biblio_save",
   /** Learning modes (quizzes, the mite, the gardener) may only use notes that carry this label, own or INHERITED (put it on a folder to opt a whole branch in). Absent = never a target. */
   learn: "biblio_learn",
   /** Never send this note (or, inherited, a whole folder) to an AI provider, even when it also carries `biblio_learn`. */

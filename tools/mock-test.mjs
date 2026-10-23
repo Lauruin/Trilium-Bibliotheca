@@ -150,6 +150,20 @@ async function conformance(T) {
       assert.equal(md.note.type, "code"); assert.equal(md.note.mime, "text/x-markdown");
     });
 
+    await check("the app's save note: a JSON code note is created with its content, searchable by its label, and its content can be replaced (PUT text/plain)", async () => {
+      const json = '{\n  "v": 1\n}\n';
+      const n = (await mk(scratch, "save note", { type: "code", mime: "application/json", content: json })).note;
+      assert.equal(n.mime, "application/json");
+      const att = await call("POST", "/attributes", { body: { noteId: n.noteId, type: "label", name: "biblio_save", value: "" } });
+      assert.ok(att.status === 201 || att.status === 200, att.text);
+      assert.equal((await call("GET", `/notes/${n.noteId}/content`)).text, json);
+      const put = await call("PUT", `/notes/${n.noteId}/content`, { raw: { body: Buffer.from('{\n  "v": 2\n}\n'), contentType: "text/plain" } });
+      assert.equal(put.status, 204);
+      assert.equal((await call("GET", `/notes/${n.noteId}/content`)).text, '{\n  "v": 2\n}\n');
+      const found = await call("GET", `/notes?search=${encodeURIComponent("#biblio_save")}`);
+      assert.ok(found.json.results.some((r) => r.noteId === n.noteId), "found by its label");
+    });
+
     await check("create-note: notePosition drives childNoteIds order; default position = last + 10", async () => {
       const p = (await mk(scratch, "ordered")).note.noteId;
       const a = (await mk(p, "a", { notePosition: 30 })).note.noteId;

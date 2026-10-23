@@ -105,7 +105,7 @@ export default async ({ bundle, assert }) => {
     const l0 = L.layoutTree(mk([{ id: "a" }, { id: "b" }]), { mode: "forest" });
     assert.deepEqual([...l0.world.branches.keys()], ["root"], "N = 0: just the stump");
     assert.equal(l0.leaves.length, 2);
-    assert.equal(L.layoutTree(mk([]), { mode: "forest" }).world.branches.get("root").total, 90);
+    assert.equal(L.layoutTree(mk([]), { mode: "forest" }).world.branches.get("root").total, L.YGG_LENGTH, "the world tree stands tall");
     const l1 = L.layoutTree(mk(forest(1, 8)), { mode: "forest" });
     assert.equal(l1.world.branches.size, 3, "N = 1: stump + root + trunk");
     noNaN(l1, "N=1");
@@ -187,14 +187,15 @@ export default async ({ bundle, assert }) => {
     // from the stump into another root (walking DOWN into its base zone: the star junction, no Shift), then up that trunk
     const up = (tid, animal) => {
       const rb = w.branches.get("root:" + tid);
-      const F0 = rb.pts.at(-1);
-      const c = S.spawn(w, A(animal), "root", rb.attachS + 2);
-      c.head.th = Math.atan2(F0.x, F0.z); // the side of the stump the root leaves from
+      const c = S.spawn(w, A(animal), "root", rb.attachS + 40, "guided");
+      c.head.th = W.entryTheta(w.branches.get("root"), rb, rb.attachS); // the side of the stump the root leaves from
       c.phi = Math.PI;
-      assert.equal(S.climbTarget(w, c)?.id, "root:" + tid, `${animal}: the stump's base offers the root of ${tid}`);
+      assert.equal(S.climbTarget(w, { ...c, head: { ...c.head, s: rb.attachS + 2 } })?.id, "root:" + tid, `${animal}: the stump's base offers the root of ${tid}`);
       const seen = [];
-      for (let i = 0; i < 60 * 40 && c.head.b !== tid; i++) {
-        S.step(w, c, { ...S.NO_INPUT, forward: true }, 1 / 60);
+      for (let i = 0; i < 60 * 60 && c.head.b !== tid; i++) {
+        // S walks down the stump into the root (the star junction); once on the root W walks along it to the trunk
+        const onRoot = c.head.b.startsWith("root:");
+        S.step(w, c, onRoot ? { ...S.NO_INPUT, forward: true } : { ...S.NO_INPUT, back: true }, 1 / 60);
         if (seen[seen.length - 1] !== c.head.b) seen.push(c.head.b);
       }
       return { c, seen };
@@ -202,7 +203,7 @@ export default async ({ bundle, assert }) => {
     for (const animal of ["lizard", "snake"]) { // (the cat clings only to the top half of a branch: on the stump it can't stand on every side)
       for (const tid of ["F1", "F2", "F4"]) {
         const r = up(tid, animal);
-        assert.deepEqual(r.seen, ["root:" + tid, tid], `${animal}: stump -> root -> up ${tid}`);
+        assert.deepEqual(r.seen.filter((b) => b !== "root"), ["root:" + tid, tid], `${animal}: stump -> root -> up ${tid}`);
       }
     }
     // tree A -> stump (arrives on the stump), then out through tree B and back to A (the full trip, both ways)

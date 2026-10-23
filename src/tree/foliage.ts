@@ -60,6 +60,7 @@ export const FOLIAGE: Record<SpeciesKey, FoliageStyle> = {
   aspen: { shape: "leafy", size: 0.78, rate: 1.5, alpha: 0.58, lift: 0.2, tall: 1.2, puffs: 8, jit: [0.02, 0.1, 0.1], shade: 0.97 },
   ash: { shape: "puff", size: 1.05, rate: 1, alpha: 0.76, lift: 0.25, tall: 0.9, puffs: 5, jit: [0.012, 0.1, 0.07], shade: 0.95 },
   cypress: { shape: "tier", size: 0.55, rate: 1.5, alpha: 0.9, lift: 0, tall: 2.2, puffs: 3, jit: [0.008, 0.06, 0.05], shade: 0.9 },
+  yggdrasil: { shape: "puff", size: 1.6, rate: 1, alpha: 0.8, lift: 0.3, tall: 0.9, puffs: 7, jit: [0.012, 0.1, 0.07], shade: 0.9, accent: { color: "#e8c75a", chance: 0.18 } },
   ghost: { shape: "wisp", size: 1, rate: 0.8, alpha: 0.38, lift: 0.3, tall: 1.6, puffs: 4, jit: [0.005, 0.05, 0.08], shade: 1.1 },
 };
 

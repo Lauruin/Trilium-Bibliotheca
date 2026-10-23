@@ -5,6 +5,8 @@ export default async ({ bundle, assert }) => {
   const W = await bundle("src/tree/world3.ts", "world-shrine.mjs");
   const S = await bundle("src/tree/sim3.ts", "sim-shrine.mjs");
   const SH = await bundle("src/tree/shrine.ts", "shrine-unit.mjs");
+  const PL = await bundle("src/tree/places.ts", "places-unit.mjs");
+  const AP = await bundle("src/tree/autopilot.ts", "pilot-shrine.mjs");
   const WI = await bundle("src/tree/wisp.ts", "wisp-unit.mjs");
   const fin = (...xs) => xs.every(Number.isFinite);
   const A = (id) => S.ANIMALS.find((a) => a.id === id);
@@ -21,6 +23,7 @@ export default async ({ bundle, assert }) => {
     return { rootNoteId: "root", notes, edges, truncated: false };
   };
   const forest = (n, notes = 5) => Array.from({ length: n }, (_, i) => ({ id: "F" + i, kids: Array.from({ length: notes }, (_, j) => ({ id: `x${i}_${j}` })) }));
+  const trunkIdsOf = (lay) => lay.world.branches.get("root").side.filter((id) => lay.world.branches.get(id).root).map((id) => lay.world.branches.get(id).next[0]);
   const angDiff = (a, b) => Math.abs(((((a - b) % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
 
   // 1. geometry for several forest sizes and for hub mode
@@ -194,5 +197,71 @@ export default async ({ bundle, assert }) => {
         assert.ok(fin(c.head.s, c.head.th, c.phi) && w.branches.get(c.head.b), `${animal}: finite fuzz state`);
       }
     }
+  }
+
+  // 4. the world tree: giant trunk, crown limbs for the places, pads at their tips
+  {
+    const places = PL.demoPlaces(5);
+    assert.equal(places.length, 5);
+    assert.equal(PL.placeOf("place:demo2", places)?.title, places[2].title);
+    assert.equal(PL.placeOf("door", places), null);
+    assert.equal(PL.placeOf("place:nope", places), null);
+    const none = L.layoutTree(mk(forest(5)), { mode: "forest" });
+    assert.deepEqual(none.places, [], "no places asked for: no limbs");
+    const lay = L.layoutTree(mk(forest(7, 8)), { mode: "forest", places: [...places, places[0]] }); // (a duplicate id is ignored)
+    const w = lay.world;
+    const trunk = w.branches.get("root");
+    assert.equal(lay.places.length, 5);
+    assert.ok(trunk.total >= L.YGG_LENGTH - 1 && trunk.r >= L.YGG_MIN_R && trunk.r <= L.YGG_MAX_R, `the world tree is giant (${trunk.total.toFixed(0)} x r ${trunk.r.toFixed(0)})`);
+    assert.equal(trunk.species, "yggdrasil");
+    // it towers over every other tree
+    let tallest = 0;
+    for (const b of w.branches.values()) if (b.id !== "root" && !b.place) for (const p of b.pts) tallest = Math.max(tallest, p.y);
+    assert.ok(tallest < trunk.total * 0.9, `the other trees stay below it (${tallest.toFixed(0)} < ${(trunk.total * 0.9).toFixed(0)})`);
+    // the other trees stand clear of it
+    for (const id of trunkIdsOf(lay)) {
+      const f = w.branches.get(id).pts[0];
+      assert.ok(Math.hypot(f.x, f.z) > trunk.r + L.YGG_CLEAR * 0.8, `a tree stands well away from the world tree`);
+    }
+    for (const pl of lay.places) {
+      const b = w.branches.get(pl.branchId);
+      assert.ok(b && b.place === pl.id && b.parent === "root" && trunk.side.includes(b.id), "a place limb is a side branch of the trunk");
+      assert.ok(b.attachS > trunk.total * 0.45 && b.attachS < trunk.total * 0.95, "in the crown (upper half)");
+      assert.ok(fin(b.r, b.rEnd, b.total) && b.total > 300 && b.pts.every((p) => fin(p.x, p.y, p.z) && p.y > 0), "a sound limb");
+      assert.equal(lay.parentOf.get(pl.branchId), "root");
+      assert.ok(!lay.info.has(pl.branchId), "not an editable folder");
+    }
+    assert.equal(new Set(lay.places.map((p) => w.branches.get(p.branchId).attachS.toFixed(0))).size, 5, "the limbs leave at different heights");
+    const sh = SH.shrineOf(w, "root", new Map(lay.places.map((p) => [p.branchId, p.title])));
+    assert.equal(sh.pads.filter((p) => p.id.startsWith("place:")).length, 5);
+    assert.ok(sh.k > 3 && sh.k <= 4.5, `the foot is scaled up (${sh.k.toFixed(2)})`);
+    assert.ok(sh.pads.find((p) => p.id === "place:demo1").label === places[1].title, "a crown pad carries its title");
+    // a creature at a limb's tip is at that pad, and only there
+    for (const pl of lay.places) {
+      const b = w.branches.get(pl.branchId);
+      const top = Math.atan2(W.frameAt(b, b.total * 0.9).b.y, W.frameAt(b, b.total * 0.9).u.y);
+      const hp = W.surfacePoint(b, b.total * 0.9, top).p;
+      assert.equal(SH.padNear(sh, hp)?.id, "place:" + pl.id, `at the tip of ${pl.id}`);
+    }
+    // it can be climbed to: the autopilot walks from the shrine's door up the trunk and out each limb
+    for (const animal of ["lizard"]) {
+      for (const pl of lay.places.slice(0, 3)) {
+        const a = SH.arrival(sh);
+        const c = S.spawn(w, A(animal), a.branch, a.s, "guided", a.th);
+        c.gripOn = false;
+        const b = w.branches.get(pl.branchId);
+        const pil = new AP.Autopilot({ b: b.id, s: b.total * 0.9, th: Math.atan2(W.frameAt(b, b.total * 0.9).b.y, W.frameAt(b, b.total * 0.9).u.y) });
+        for (let i = 0; i < 60 * 400 && pil.status === "walking"; i++) { const inp = pil.step(w, c, DT); if (pil.status !== "walking") break; S.step(w, c, inp, DT); }
+        assert.equal(pil.status, "arrived", `${animal}: walks from the door to the ${pl.title} limb (${pil.reason}, on ${c.head.b} at ${c.head.s.toFixed(0)})`);
+        const hp = W.surfacePoint(w.branches.get(c.head.b), c.head.s, c.head.th).p;
+        assert.ok(SH.padNear(sh, hp)?.id === "place:" + pl.id, "and is at its pad when it arrives");
+      }
+    }
+    // hub mode ignores places and keeps the short stump
+    const hub = L.layoutTree(mk(forest(4)), { mode: "hub", places });
+    assert.deepEqual(hub.places, []);
+    assert.ok(hub.world.branches.get("root").total < 1000, "hub mode: the old short stump");
+    const hubShrine = SH.shrineOf(hub.world, "root");
+    assert.ok(hubShrine && hubShrine.k <= 2, "hub mode: a small foot");
   }
 };

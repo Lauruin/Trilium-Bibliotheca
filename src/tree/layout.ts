@@ -119,6 +119,8 @@ export interface TreeLayout {
   parentOf: Map<string, string | null>;
   /** Every branch (the hub included): calculated, effective and overridden properties. */
   info: Map<string, BranchInfo>;
+  /** The crown limbs (forest layout): one per place asked for, `branchId` = `place:<id>`. */
+  places: Array<{ id: string; title: string; branchId: string }>;
 }
 
 export const PROP_KEYS: readonly PropKey[] = ["length", "thickness", "taper", "spin", "pitch", "attach", "bend", "species", "wave", "waveFreq", "waveFn"];
@@ -310,6 +312,27 @@ const HUB_R_OVER_TRUNK = 1.1;
 const HUB_TAPER = 0.95;
 const HUB_SPECIES: SpeciesKey = "oak";
 
+// the world tree (the hub in FOREST mode): the root note's trunk is a giant that towers over the forest, its crown carries the places
+/** Its rise; the other trees are at most MAX_LENGTH (2400) of trunk, so it stands well above them. */
+export const YGG_LENGTH = 3200;
+/** Trunk radius: at least this, or this x the thickest other trunk. */
+export const YGG_MIN_R = 190;
+export const YGG_R_OVER_TRUNK = 3;
+export const YGG_MAX_R = 320;
+const YGG_TAPER = 0.18;
+/** Extra free ground around the world tree beyond its radius (the other trees stand "a bit further away"). */
+export const YGG_CLEAR = 260;
+/** Crown limbs: where on the trunk they leave (fractions of its length) and how long they are. */
+const CROWN_FROM = 0.5;
+const CROWN_TO = 0.92;
+const CROWN_LEN = 900;
+
+/** A place in the world tree's crown (a game mode or tool; see tree/places.ts): one limb each. */
+export interface CrownPlace {
+  id: string;
+  title: string;
+}
+
 /** Root-arch horizontal run: max(200, 70 per tree); beyond 30 trees it is only as large as the trunk thickness needs. */
 const ARCH_MIN = 200;
 const ARCH_PER_TREE = 70;
@@ -379,7 +402,7 @@ type Role =
   | { kind: "trunk"; i: number; n: number; run: number; calcSp: SpeciesKey; az: number; forest?: boolean }
   | { kind: "side"; i: number; n: number; inherited: SpeciesKey; parentIdx: number; sCalc: number };
 
-export function layoutTree(tree: LibraryTree, opts: { overrides?: ExplicitOverrides; mode?: LayoutMode } = {}): TreeLayout {
+export function layoutTree(tree: LibraryTree, opts: { overrides?: ExplicitOverrides; mode?: LayoutMode; places?: readonly CrownPlace[] } = {}): TreeLayout {
   const mode: LayoutMode = opts.mode === "forest" ? "forest" : "hub";
   const world: World = { branches: new Map(), groundY: 0 }; // the hub grows from y = 0
   const leaves: Leaf[] = [];
@@ -643,17 +666,24 @@ export function layoutTree(tree: LibraryTree, opts: { overrides?: ExplicitOverri
   const forest = speciesForest(trunkIds, trunkIds.map((id) => ovFor(id).species ?? null));
   const trunkCalcR = trunkIds.map((id, i) => Math.max(MIN_RADIUS, 5, r0Of(id, true) * SPECIES[forest.eff[i]].trunkR));
   const maxTrunkR = Math.max(0, ...trunkCalcR);
-  const hubCalc: BranchProps = {
-    length: clamp(HUB_BASE + HUB_PER_NOTE * rootNotes.length, HUB_BASE, HUB_MAX),
-    thickness: Math.max(HUB_MIN_R, HUB_R_OVER_TRUNK * maxTrunkR),
-    taper: HUB_TAPER, spin: 0, pitch: 0, attach: 0, bend: 0, species: HUB_SPECIES, wave: 0, waveFreq: 1, waveFn: "none",
-  };
+  const world3 = mode === "forest"; // the hub is the WORLD TREE: a giant trunk with a crown (the hub mode keeps the short stump)
+  const hubCalc: BranchProps = world3
+    ? {
+        length: YGG_LENGTH,
+        thickness: clamp(YGG_R_OVER_TRUNK * maxTrunkR, YGG_MIN_R, YGG_MAX_R),
+        taper: YGG_TAPER, spin: 0, pitch: 0, attach: 0, bend: 0, species: "yggdrasil", wave: 0, waveFreq: 1, waveFn: "none",
+      }
+    : {
+        length: clamp(HUB_BASE + HUB_PER_NOTE * rootNotes.length, HUB_BASE, HUB_MAX),
+        thickness: Math.max(HUB_MIN_R, HUB_R_OVER_TRUNK * maxTrunkR),
+        taper: HUB_TAPER, spin: 0, pitch: 0, attach: 0, bend: 0, species: HUB_SPECIES, wave: 0, waveFreq: 1, waveFn: "none",
+      };
   const hubEff: BranchProps = {
     ...hubCalc,
     length: hubOv.length ?? hubCalc.length,
     thickness: hubOv.thickness ?? hubCalc.thickness,
     taper: hubOv.taper ?? hubCalc.taper,
-    species: hubOv.species ?? HUB_SPECIES,
+    species: hubOv.species ?? hubCalc.species,
   };
   const hubSp = SPECIES[hubEff.species];
   {
@@ -695,7 +725,7 @@ export function layoutTree(tree: LibraryTree, opts: { overrides?: ExplicitOverri
         crown: g.crown,
         footR: world.branches.get(g.tid)!.r,
       }));
-      const spots = placeTrees(slots, hub.r);
+      const spots = placeTrees(slots, hub.r + YGG_CLEAR);
       // 3. move each tree there and lay its root: stump -> ground -> sweeps up into the trunk
       grown.forEach((g, i) => {
         const { x, z } = spots[i];
@@ -714,7 +744,34 @@ export function layoutTree(tree: LibraryTree, opts: { overrides?: ExplicitOverri
     }
   }
 
-  return { world, leaves, rootBranchId: rootId, mode, parentOf, info };
+  // ---- the crown: one limb per place, leaving the world tree's upper trunk, fanned round it (forest only) ----
+  const placed: Array<{ id: string; title: string; branchId: string }> = [];
+  if (world3) {
+    const hub = world.branches.get(rootId)!;
+    const places = (opts.places ?? []).filter((pl, i, a) => pl.id && a.findIndex((x) => x.id === pl.id) === i);
+    places.forEach((pl, i) => {
+      const bid = `place:${pl.id}`;
+      const t = places.length === 1 ? 0.7 : CROWN_FROM + ((CROWN_TO - CROWN_FROM) * (i + 0.5)) / places.length;
+      const attachS = hub.total * t;
+      const f = frameAt(hub, attachS);
+      const az = i * GOLDEN + rnd(bid, 1) * 0.5;
+      const pitch = (52 + 18 * rnd(bid, 2)) * DEG;
+      const side = add(mul(f.u, Math.cos(az)), mul(f.b, Math.sin(az)));
+      const dir = lift(norm(add(add(mul(f.t, Math.cos(pitch)), mul(side, Math.sin(pitch))), v3(0, 0.3, 0))));
+      const len = CROWN_LEN * (0.85 + 0.3 * rnd(bid, 3));
+      const r = Math.max(20, 0.2 * radiusAt(hub, attachS));
+      const k = 5;
+      const ctrl = trace(bid, f.p, dir, k, len / k, 0.05, 1, 1, -0.1, f.p.y);
+      const branch = makeBranch(bid, smoothPath(ctrl, 22), r, rootId, attachS, Math.max(6, 0.3 * r));
+      branch.species = "yggdrasil";
+      branch.place = pl.id;
+      addBranch(world, branch);
+      parentOf.set(bid, rootId);
+      placed.push({ id: pl.id, title: pl.title, branchId: bid });
+    });
+  }
+
+  return { world, leaves, rootBranchId: rootId, mode, parentOf, info, places: placed };
 }
 
 /** Breadcrumb: folder ids from the root down to `branchId`. */

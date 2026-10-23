@@ -672,6 +672,18 @@ export class TreeScene {
 
   // ---- the wisp ---------------------------------------------------------------------
 
+  /** Re-read every remembered view setting from localStorage and apply it (after a save was loaded from Trilium). */
+  reloadPrefs(): void {
+    this.setLook(load(LOOK_KEY, ["voxel", "lowpoly"] as const, "voxel"));
+    this.setCamera(load(CAM_KEY, CAM_MODES, "chase"));
+    this.setMoveMode(load(MOVE_KEY, MOVE_MODES, DEFAULT_MOVE_MODE));
+    this.setLabels(load(LABEL_KEY, LABEL_MODES, "signs"));
+    this.setFoliage(load(FOLIAGE_KEY, ["on", "off"] as const, "on") === "on", clampDensity(Number(load(FOLIAGE_DENSITY_KEY, ["0.25", "0.5", "0.75", "1", "1.25", "1.5"] as const, "1"))));
+    this.setShadows(loadShadowQuality());
+    this.setPerfProfile(load(PERF_KEY, PERF_PROFILES, DEFAULT_PERF_PROFILE));
+    this.wispMode = parseWispMode(load("biblio.v1.treeWisp", ["perch", "follow"] as const, "perch"));
+  }
+
   setWispMode(m: WispMode): void {
     this.wispMode = m;
     save("biblio.v1.treeWisp", m);

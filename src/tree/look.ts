@@ -28,28 +28,35 @@ interface Vox {
   r: number;
   g: number;
   b: number;
+  /** Cube size relative to VOX: 1 normally, larger on the giant trunks (the world tree), where VOX-sized cubes would cost millions of triangles. */
+  s: number;
 }
+
+/** Cube size multiplier of a branch's voxels: a thick branch has few visible features per cube, and its cube count grows with the SQUARE of its size. */
+export const cubeScale = (b: Branch): number => (b.r > 140 ? 3 : b.r > 70 ? 2 : 1);
 
 /** Shell voxels of one branch, snapped to the global voxel grid (deduplicated), bark-coloured with mossy tops; a branch end gets a tapering cap (a point on a twig). */
 export function branchVoxels(b: Branch): Vox[] {
   const out = new Map<string, Vox>();
   const bark = barkOf(b);
-  const rings = Math.ceil(b.total / (VOX * 0.7));
+  const ms = cubeScale(b);
+  const V = VOX * ms; // this branch's cube size (and grid)
+  const rings = Math.ceil(b.total / (V * 0.7));
   const ringAt = (f: ReturnType<typeof frameAt>, R: number, i: number): void => {
-    const around = Math.max(12, Math.ceil((Math.PI * 2 * Math.max(R, b.r * 0.2)) / (VOX * 0.7)));
+    const around = Math.max(12, Math.ceil((Math.PI * 2 * Math.max(R, b.r * 0.2)) / (V * 0.7)));
     for (let k = 0; k < around; k++) {
       const th = (k / around) * Math.PI * 2;
       const n = normalAt(f, th);
       // first shell centre half a voxel inside the true surface, so the blocks' outer faces sit ON it (small creatures walk on top, not inside)
-      for (const rr of [R - VOX * 0.55, R - VOX * 1.2, R - VOX * 1.9, R - VOX * 2.6]) {
-        const gx = Math.round((f.p.x + n.x * rr) / VOX);
-        const gy = Math.round((f.p.y + n.y * rr) / VOX);
-        const gz = Math.round((f.p.z + n.z * rr) / VOX);
+      for (const rr of (ms > 1 ? [R - V * 0.55, R - V * 1.2] : [R - V * 0.55, R - V * 1.2, R - V * 1.9, R - V * 2.6])) {
+        const gx = Math.round((f.p.x + n.x * rr) / V);
+        const gy = Math.round((f.p.y + n.y * rr) / V);
+        const gz = Math.round((f.p.z + n.z * rr) / V);
         const key = `${gx},${gy},${gz}`;
         if (out.has(key)) continue;
         const h = hash(gx * 13.1 + gy * 7.7 + gz * 3.3);
         const [r, g, bl] = barkColor(bark, h, hash(k * 1.91 + b.r), hash(gx * 5.3 + gy * 1.7 + gz * 9.1), hash(gx * 3.7 + gz * 5.1 + Math.floor(i / 6)), n.y, n.y < -0.4);
-        out.set(key, { x: gx * VOX, y: gy * VOX, z: gz * VOX, r, g, b: bl });
+        out.set(key, { x: gx * V, y: gy * V, z: gz * V, r, g, b: bl, s: ms });
       }
     }
   };
@@ -58,8 +65,8 @@ export function branchVoxels(b: Branch): Vox[] {
     // closed end: rings continue past the last point along its tangent while the radius shrinks to nothing (one cube at the very tip)
     const f = frameAt(b, b.total);
     const Re = radiusAt(b, b.total);
-    const cap = Math.max(VOX * 1.6, Re * (Re < 6 ? 2.6 : 0.9));
-    const steps = Math.ceil(cap / (VOX * 0.6));
+    const cap = Math.max(V * 1.6, Re * (Re < 6 ? 2.6 : 0.9));
+    const steps = Math.ceil(cap / (V * 0.6));
     for (let j = 1; j <= steps; j++) {
       const d = (j / steps) * cap;
       const fp = { ...f, p: { x: f.p.x + f.t.x * d, y: f.p.y + f.t.y * d, z: f.p.z + f.t.z * d } };
@@ -243,7 +250,7 @@ export function buildBark(world: World, look: Look, groundY = world.groundY ?? 0
     const m4 = new THREE.Matrix4();
     const col = new THREE.Color();
     vox.forEach((v, i) => {
-      m4.makeTranslation(v.x, v.y, v.z);
+      m4.makeScale(v.s, v.s, v.s).setPosition(v.x, v.y, v.z);
       mesh.setMatrixAt(i, m4);
       col.copy(srgb(v.r, v.g, v.b));
       mesh.setColorAt(i, col);

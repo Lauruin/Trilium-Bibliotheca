@@ -89,6 +89,8 @@ export interface CreateNoteDef {
   title: string;
   type: "text" | "code" | "file" | "image" | "search" | "book" | "relationMap" | "render";
   content: string;
+  /** Optional mime (code notes: `application/json`, ...). */
+  mime?: string;
   notePosition?: number;
   prefix?: string;
   isExpanded?: boolean;

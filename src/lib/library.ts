@@ -106,6 +106,8 @@ export async function walkLibraryTree(
     for (const r of results) {
       if (r === null) continue;
       const { n, parent, depth } = r;
+      // the Yggdrasil data folder (app data) is not part of the vault's content: no room, no tree, nothing below it
+      if ((n.attributes ?? []).some((a) => a.type === "label" && a.name.toLowerCase() === LABELS.yggdrasil && (a.noteId === undefined || a.noteId === n.noteId))) continue;
       // Record the edge before the visited check: a clone has several parents
       // and each parent→clone edge must exist even though we fetch it once.
       if (parent !== null) {

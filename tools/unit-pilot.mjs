@@ -183,7 +183,7 @@ export default async ({ bundle, assert }) => {
   }
 
   // 6. the autopilot reaches goals: random start / goal pairs, every walking animal, forest + hub
-  const trials = (world, animal, n, seed0) => {
+  const trials = (world, animal, n, seed0, secs = 120) => {
     let seed = seed0;
     const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
     const ids = [...world.branches.values()].filter((b) => !b.silk && b.total > 60).map((b) => b.id);
@@ -196,7 +196,7 @@ export default async ({ bundle, assert }) => {
       c.head.th = (rnd() - 0.5) * 2;
       const goal = { b: gb.id, s: gb.total * (0.1 + 0.8 * rnd()), th: (rnd() - 0.5) * 2.4 };
       const pil = new AP.Autopilot(goal);
-      for (let i = 0; i < 60 * 120 && pil.status === "walking"; i++) {
+      for (let i = 0; i < 60 * secs && pil.status === "walking"; i++) {
         const inp = pil.step(world, c, DT);
         if (pil.status !== "walking") break; // judge the animal at the moment of arrival (it would coast a few px, maybe into a side branch's zone)
         S.step(world, c, inp, DT);
@@ -218,6 +218,17 @@ export default async ({ bundle, assert }) => {
       const r = trials(w, id, 14, 17 + id.length);
       rates[`${wname}/${id}`] = `${r.ok}/${r.n}`; if (r.fails.length && process.env.PILOT_FAILS) console.log("  pilot fails", wname, id, r.fails.join(" "));
       assert.ok(r.ok / r.n >= 0.85, `${wname}/${id}: click-to-walk arrives in at least 85% of random trials (${r.ok}/${r.n}; ${r.fails.slice(0, 3).join(", ")})`);
+    }
+  }
+  // a bigger, branchier vault (many side branches along long trunks: the regressions here were turning circles round a trunk, falls from the underside of thin
+  // twigs, being pulled into a neighbouring side branch's zone): click-to-walk still arrives in at least 85% of random trials
+  {
+    const deep = (n) => Array.from({ length: n }, (_, i) => ({ id: "T" + i, kids: [...nn("t" + i, 4), ...Array.from({ length: 5 }, (_, j) => ({ id: `S${i}_${j}`, kids: [...nn(`s${i}${j}`, 3), { id: `U${i}_${j}`, kids: nn(`u${i}${j}`, 2) }] }))] }));
+    const bigForest = L.layoutTree(mkTree(deep(7)), { mode: "forest" });
+    for (const id of ["lizard", "ant"]) {
+      const r = trials(bigForest.world, id, 16, 31 + id.length, id === "ant" ? 420 : 160);
+      rates[`deep-forest/${id}`] = `${r.ok}/${r.n}`;
+      assert.ok(r.ok / r.n >= (id === "ant" ? 0.7 : 0.85), `deep forest/${id}: click-to-walk arrives in at least ${id === "ant" ? 70 : 85}% of random trials (the ant is slow: some runs hit the 120 s harness limit) (${r.ok}/${r.n}; ${r.fails.slice(0, 3).join(", ")})`);
     }
   }
   // the cat clings to the upper half of a branch: it reaches what it can reach and says so for the rest (never loops forever, never NaN)

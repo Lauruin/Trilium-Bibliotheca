@@ -199,6 +199,12 @@ export class TriliumClient {
     return this.request<SearchResponse>(`/notes?search=${encodeURIComponent(query)}`);
   }
 
+  /** Replace a note's content with text (text / code notes). ETAPI reads only `text/plain` (or octet-stream) on this endpoint. */
+  async putNoteContent(noteId: string, content: string): Promise<void> {
+    this.assertWritable();
+    await this.fetchOk(`/notes/${encodeURIComponent(noteId)}/content`, { method: "PUT", body: content, headers: { "Content-Type": "text/plain", Accept: "*/*" } });
+  }
+
   /** Throws when this client is read-only: called first by every write. */
   private assertWritable(): void {
     if (this.opts.readOnly) throw new TriliumApiError(403, "READ_ONLY", "This server is read-only: nothing can be changed from here.");

@@ -14,7 +14,7 @@ import type { WaveFn } from "./wave";
 
 export type SpeciesKey =
   | "oak" | "birch" | "maple" | "pine" | "willow" | "cherry" | "acacia"
-  | "baobab" | "redwood" | "aspen" | "ash" | "cypress" | "ghost";
+  | "baobab" | "redwood" | "aspen" | "ash" | "cypress" | "yggdrasil" | "ghost";
 
 export interface Species {
   key: SpeciesKey;
@@ -159,6 +159,14 @@ export const SPECIES: Record<SpeciesKey, Species> = {
     bark: { base: [0.35, 0.27, 0.2], variation: 0.1, moss: 0, streak: 0.5 },
     leaf: { color: "#1f4a2e" },
   }),
+  // the world tree in the middle of the forest (the root note's trunk in forest mode): never picked automatically, only by the layout / a label
+  yggdrasil: S({
+    key: "yggdrasil", label: "Yggdrasil (the world tree)",
+    trunkLen: 1, trunkR: 1.5, branchR: 1.4, taper: 0.5, pitchMin: 45, pitchMax: 75, upBias: 0.35, droop: 0.25,
+    lengthDecay: 0.9, childLen: 1.2, azimuthRule: "golden", attachFrom: 0.5, attachTo: 0.98, sway: 1, tropism: 0.04,
+    bark: { base: [0.27, 0.2, 0.15], variation: 0.22, moss: 0.35, streak: 0.9 },
+    leaf: { color: "#7fb84e" },
+  }),
   ghost: S({
     key: "ghost", label: "Ghost (dead tree)",
     trunkLen: 1, trunkR: 0.9, branchR: 0.8, taper: 0.35, pitchMin: 40, pitchMax: 95, upBias: 0.1, droop: 0.5,
@@ -170,6 +178,9 @@ export const SPECIES: Record<SpeciesKey, Species> = {
 
 /** Every kind, in a fixed order (the order `speciesFor` steps through; a prime count keeps every step coprime). */
 export const SPECIES_KEYS: SpeciesKey[] = Object.keys(SPECIES) as SpeciesKey[];
+
+/** The kinds picked automatically for the forest's trees: all but the world tree (so the pool, its order and its prime count are what they always were). */
+export const POOL_KEYS: SpeciesKey[] = SPECIES_KEYS.filter((k) => k !== "yggdrasil");
 
 /** Deterministic hash of a string into [0,1) (FNV-1a). */
 export function hash01(s: string): number {
@@ -199,8 +210,8 @@ export function speciesFor(noteId: string, indexAmongSiblings = 0, override?: st
   const o = parseSpeciesKey(override);
   if (o) return o;
   const idx = Number.isFinite(indexAmongSiblings) ? Math.max(0, Math.floor(indexAmongSiblings)) : 0;
-  const n = SPECIES_KEYS.length;
-  return SPECIES_KEYS[(Math.floor(hash01(noteId) * n) + idx * STEP) % n];
+  const n = POOL_KEYS.length;
+  return POOL_KEYS[(Math.floor(hash01(noteId) * n) + idx * STEP) % n];
 }
 
 /** How many neighbouring trees must all differ. */
@@ -214,13 +225,13 @@ const FOREST_WINDOW = 3;
 export function speciesForest(ids: readonly string[], explicit: ReadonlyArray<SpeciesKey | null | undefined> = []): { calc: SpeciesKey[]; eff: SpeciesKey[] } {
   const calc: SpeciesKey[] = [];
   const eff: SpeciesKey[] = [];
-  const n = SPECIES_KEYS.length;
+  const n = POOL_KEYS.length;
   ids.forEach((id, i) => {
     const recent = calc.slice(-FOREST_WINDOW); // the CALCULATED neighbours, so overriding one tree never re-skins the next
-    let k = SPECIES_KEYS.indexOf(speciesFor(id, i));
-    for (let tries = 0; tries < n && recent.includes(SPECIES_KEYS[k]); tries++) k = (k + 1) % n;
-    calc.push(SPECIES_KEYS[k]);
-    eff.push(explicit[i] ?? SPECIES_KEYS[k]);
+    let k = POOL_KEYS.indexOf(speciesFor(id, i));
+    for (let tries = 0; tries < n && recent.includes(POOL_KEYS[k]); tries++) k = (k + 1) % n;
+    calc.push(POOL_KEYS[k]);
+    eff.push(explicit[i] ?? POOL_KEYS[k]);
   });
   return { calc, eff };
 }

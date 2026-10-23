@@ -64,59 +64,74 @@ export function buildShrine(shrine: Shrine): THREE.Group {
     prism(soup, st.x, gy - 3, st.z, st.w, st.w * 0.62, st.h + 3, 5 + (i % 2), st.rot, i % 3 === 0 ? MOSS : STONE, 11 + i * 5);
   });
 
-  // the door: a stone frame + a wooden door standing against the stump's foot at the door azimuth
+  const kd = Math.sqrt(shrine.k); // the foot of the world tree is much bigger than the old stump: the door, altar and post grow with it
+
+  // the door: a stone frame + a wooden door standing against the trunk's foot at the door azimuth
   {
     const az = shrine.doorAz;
     const rad = { x: Math.cos(az), z: Math.sin(az) };
     const tan = { x: -Math.sin(az), z: Math.cos(az) };
-    const R = shrine.stumpR + 9;
-    const hw = Math.min(34, Math.max(20, shrine.stumpR * 0.9));
-    const H = 78;
+    const R = shrine.stumpR + 9 * kd;
+    const hw = Math.min(34 * kd, Math.max(20, shrine.stumpR * 0.9));
+    const H = 78 * kd;
     const at = (r: number, t: number): { x: number; z: number } => ({ x: shrine.centre.x + rad.x * r + tan.x * t, z: shrine.centre.z + rad.z * r + tan.z * t });
     // box rotation: local +x of `box` must run along the tangent
     const rot = Math.atan2(tan.z, tan.x);
     for (const sgn of [-1, 1]) {
-      const p = at(R, sgn * (hw + 5));
-      box(soup, p.x, gy + H / 2 - 2, p.z, 6, H / 2 + 2, 8, rot, STONE);
+      const p = at(R, sgn * (hw + 5 * kd));
+      box(soup, p.x, gy + H / 2 - 2, p.z, 6 * kd, H / 2 + 2, 8 * kd, rot, STONE);
     }
     const lintel = at(R, 0);
-    box(soup, lintel.x, gy + H + 4, lintel.z, hw + 12, 6, 9, rot, STONE_DARK);
-    box(soup, lintel.x, gy + H + 12, lintel.z, hw + 4, 3, 7, rot, MOSS);
+    box(soup, lintel.x, gy + H + 4 * kd, lintel.z, hw + 12 * kd, 6 * kd, 9 * kd, rot, STONE_DARK);
+    box(soup, lintel.x, gy + H + 12 * kd, lintel.z, hw + 4 * kd, 3 * kd, 7 * kd, rot, MOSS);
     // the door leaf with planks, and a warm glow slit above it
-    const d = at(R - 3, 0);
-    box(soup, d.x, gy + (H - 4) / 2, d.z, hw, (H - 4) / 2, 3, rot, WOOD);
+    const d = at(R - 3 * kd, 0);
+    box(soup, d.x, gy + (H - 4) / 2, d.z, hw, (H - 4) / 2, 3 * kd, rot, WOOD);
     for (let i = -2; i <= 2; i++) {
-      const pl = at(R + 0.5, (i * hw) / 2.6);
-      box(soup, pl.x, gy + (H - 4) / 2, pl.z, 1.1, (H - 6) / 2, 3.2, rot, WOOD_DARK);
+      const pl = at(R + 0.5 * kd, (i * hw) / 2.6);
+      box(soup, pl.x, gy + (H - 4) / 2, pl.z, 1.1 * kd, (H - 6) / 2, 3.2 * kd, rot, WOOD_DARK);
     }
-    const hd = at(R + 2, hw * 0.62);
-    box(soup, hd.x, gy + 34, hd.z, 2.5, 2.5, 2, rot, IRON);
-    const slit = at(R - 1, 0);
-    box(soup, slit.x, gy + H - 1, slit.z, hw * 0.7, 1.6, 4, rot, GLOW);
+    const hd = at(R + 2 * kd, hw * 0.62);
+    box(soup, hd.x, gy + 34 * kd, hd.z, 2.5 * kd, 2.5 * kd, 2 * kd, rot, IRON);
+    const slit = at(R - 1 * kd, 0);
+    box(soup, slit.x, gy + H - 1, slit.z, hw * 0.7, 1.6 * kd, 4 * kd, rot, GLOW);
   }
 
-  // the altar: a flat stone slab on a short block against the stump's foot
+  // the altar: a flat stone slab on a short block against the trunk's foot
   {
     const az = shrine.altarAz;
     const rad = { x: Math.cos(az), z: Math.sin(az) };
-    const R = shrine.stumpR + 16;
+    const R = shrine.stumpR + 16 * kd;
     const x = shrine.centre.x + rad.x * R, z = shrine.centre.z + rad.z * R;
     const rot = Math.atan2(rad.z, rad.x);
-    box(soup, x, gy + 9, z, 9, 9, 15, rot, STONE_DARK);
-    box(soup, x, gy + 20, z, 12, 2.5, 19, rot, STONE);
-    box(soup, x, gy + 24, z, 3, 2, 3, rot, GLOW);
+    box(soup, x, gy + 9 * kd, z, 9 * kd, 9 * kd, 15 * kd, rot, STONE_DARK);
+    box(soup, x, gy + 20 * kd, z, 12 * kd, 2.5 * kd, 19 * kd, rot, STONE);
+    box(soup, x, gy + 24 * kd, z, 3 * kd, 2 * kd, 3 * kd, rot, GLOW);
   }
 
   // the lantern post that carries the wisp
   {
     const { base, top } = shrine.post;
-    prism(soup, base.x, gy - 3, base.z, 7, 4.5, top.y - gy + 3, 6, 0.4, STONE_DARK, 77);
+    prism(soup, base.x, gy - 3, base.z, 7 * kd, 4.5 * kd, top.y - gy + 3, 6, 0.4, STONE_DARK, 77);
     // an iron cradle: four stakes round the perch and a ring
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-      box(soup, top.x + Math.cos(a) * 7, top.y + 6, top.z + Math.sin(a) * 7, 1.1, 6, 1.1, 0, IRON);
+      box(soup, top.x + Math.cos(a) * 7 * kd, top.y + 6 * kd, top.z + Math.sin(a) * 7 * kd, 1.1 * kd, 6 * kd, 1.1 * kd, 0, IRON);
     }
-    box(soup, top.x, top.y + 1.5, top.z, 8.5, 1.2, 8.5, 0, IRON);
+    box(soup, top.x, top.y + 1.5 * kd, top.z, 8.5 * kd, 1.2 * kd, 8.5 * kd, 0, IRON);
+  }
+
+  // the crown: a lantern-fruit hanging at the tip of every place limb (a glowing seed in an iron cage), so the limb ends are easy to find
+  for (const pad of shrine.pads) {
+    if (!pad.id.startsWith("place:")) continue;
+    const { x, y, z } = pad.pos;
+    box(soup, x, y + 14, z, 11, 11, 11, 0.4, GLOW);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      box(soup, x + Math.cos(a) * 13, y + 14, z + Math.sin(a) * 13, 1.6, 13, 1.6, 0, IRON);
+    }
+    box(soup, x, y + 29, z, 14, 2, 14, 0, IRON);
+    box(soup, x, y - 1, z, 14, 2, 14, 0, IRON);
   }
 
   const mesh = soup.mesh();

@@ -1,11 +1,12 @@
 /**
  * tree/proto.ts — standalone feel-test page for the Yggdrasil view (lizard3d.html):
- * demo tree, no Trilium (`?vault` = a synthetic vault through the real layout, `&layout=hub|forest` (default forest), `&trees=N` top-level folders, `&depth=D` levels, `&wave=fn:amp:freq` a wave on every branch, `&shrine` the shrine and the wisp's lantern post). Keys: W up the branch / S down / A/D turn on it (M = free mode: W forward, A/D steer) · Space HOLD = aim a jump, release = leap
+ * demo tree, no Trilium (`?vault` = a synthetic vault through the real layout, `&layout=hub|forest` (default forest), `&trees=N` top-level folders, `&depth=D` levels, `&wave=fn:amp:freq` a wave on every branch, `&shrine` the shrine and the wisp's lantern post, `&places=N` N stand-in crown limbs of the world tree). Keys: W up the branch / S down / A/D turn on it (M = free mode: W forward, A/D steer) · Space HOLD = aim a jump, release = leap
  * (snake / ant: hold to reach; bee / dragonfly / jay: take off) · X spider silk · 1/2/3 animal categories (again = next) · G grip · H auto-align (free mode) · N branch names · V camera (chase/level/fixed) · L look (voxel/low-poly) · wheel/+/− zoom · P pixel mode · R respawn.
  */
 
 import { TreeScene, type Leaf } from "./TreeScene";
 import { DEFAULT_LAYOUT_MODE, layoutTree, parseLayoutMode } from "./layout";
+import { demoPlaces } from "./places";
 import { makeDemoWorld } from "./world3";
 import type { LibraryTree, NoteInfo, TreeEdge } from "../types";
 
@@ -51,7 +52,7 @@ const vaultTree = useVault ? demoVault() : null;
 const waveOv = waveSpec.length === 3 && vaultTree
   ? new Map(Object.keys(vaultTree.notes).map((id) => [id, { waveFn: waveSpec[0], wave: Number(waveSpec[1]), waveFreq: Number(waveSpec[2]) }]))
   : undefined;
-const vault = vaultTree ? layoutTree(vaultTree, { mode: parseLayoutMode(params.get("layout")) ?? DEFAULT_LAYOUT_MODE, overrides: waveOv }) : null;
+const vault = vaultTree ? layoutTree(vaultTree, { mode: parseLayoutMode(params.get("layout")) ?? DEFAULT_LAYOUT_MODE, overrides: waveOv, places: demoPlaces(Number(params.get("places")) || 0) }) : null;
 const startBranch = vault ? vault.rootBranchId : "trunk";
 const startS = vault ? 120 : 220;
 
@@ -84,7 +85,7 @@ try {
   hud.textContent = "WebGL unavailable in this browser — the 3D tree needs it.";
   throw e;
 }
-scene.setWorld(world, leaves, startBranch, startS, new Map([...world.branches.keys()].map((id) => [id, id === 'root' ? 'Library' : id])));
+scene.setWorld(world, leaves, startBranch, startS, new Map([...world.branches.keys()].map((id) => [id, id === 'root' ? 'Yggdrasil' : id.startsWith('place:') ? (demoPlaces(8).find((p) => 'place:' + p.id === id)?.title ?? id) : id])));
 if (vault && params.has("shrine")) {
   // `&shrine`: the app's shrine (door, altar, lantern post with the wisp) and the animal at its door
   scene.setShrine(true);

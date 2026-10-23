@@ -48,6 +48,11 @@ export interface Branch {
    * Only cosmetics / bookkeeping may look at it; the sim treats it like any branch.
    */
   root?: boolean;
+  /**
+   * A crown limb of the world tree (forest layout): a side branch of the central trunk that carries a PLACE (a game mode, a tool: the
+   * id of the place, see tree/places.ts). An ordinary rail for the sim; the shrine puts a pad at its tip. No leaves, not editable.
+   */
+  place?: string;
   /** Silk bridge: walking off this branch's END continues on `b` at arc length `s` (the thread's far end is attached there). */
   endLink?: { b: string; s: number };
   /** Children that continue from this branch's END point. */
@@ -236,6 +241,32 @@ export function entryTheta(cur: Branch, child: Branch, attach: number): number {
         bd = d;
         best = wrapAngle(th);
       }
+    }
+  }
+  return best;
+}
+
+/**
+ * Where a side branch's base zone really is on its parent: the arc length and angle of the parent's surface point nearest to the child's
+ * centreline, searched from where the child STARTS (`attach`) up the parent. For a thin child that is right at `attach`; for a fat
+ * parent with a limb leaving at a slant the centreline only reaches the surface some way up (`s` > `attach`).
+ */
+export function entryPoint(cur: Branch, child: Branch, attach: number): { s: number; th: number; dist: number } {
+  let best = { s: attach, th: 0, dist: Infinity };
+  const reach = Math.min(cur.total - attach, 3.5 * radiusAt(cur, attach) + 40);
+  const dS = Math.max(4, reach / 40);
+  for (let s = attach; s <= attach + reach + 1e-9; s += dS) {
+    for (let k = 0; k < 36; k++) {
+      const th = wrapAngle((k / 36) * Math.PI * 2);
+      const d = nearestOnBranch(child, surfacePoint(cur, s, th).p).dist;
+      if (d < best.dist) best = { s, th, dist: d };
+    }
+  }
+  for (let step = 0.1, ds = dS / 2; step > 0.004; step /= 2, ds /= 2) {
+    for (const [s2, th2] of [[best.s - ds, best.th], [best.s + ds, best.th], [best.s, best.th - step], [best.s, best.th + step]] as Array<[number, number]>) {
+      const s3 = Math.min(cur.total, Math.max(0, s2));
+      const d = nearestOnBranch(child, surfacePoint(cur, s3, th2).p).dist;
+      if (d < best.dist) best = { s: s3, th: wrapAngle(th2), dist: d };
     }
   }
   return best;

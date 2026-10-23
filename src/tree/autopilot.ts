@@ -16,7 +16,7 @@
  */
 
 import { NO_INPUT, starTop, type Creature, type Input } from "./sim3";
-import { dist, entryTheta, radiusAt, surfacePoint, wrapAngle, type Branch, type V3, type World } from "./world3";
+import { dist, entryPoint, entryTheta, frameAt, radiusAt, surfacePoint, wrapAngle, type Branch, type V3, type World } from "./world3";
 
 export { entryTheta }; // (lives in world3.ts: the simulation's star junction needs it too)
 
@@ -65,6 +65,45 @@ export function routeBetween(world: World, from: string, to: string): string[] |
   return null;
 }
 
+/**
+ * The key that turns the animal round the bark in the wanted direction ("right" = the angle `th` increases, as seen by an animal that
+ * faces tip-ward). A/D are "left / right as the ANIMAL sees it", so an animal facing base-ward needs the other key; deciding by the
+ * direction the animal faces NOW (not the direction it faced when the turn began) is what keeps a turn from circling the trunk forever.
+ */
+function pressFor(turn: "left" | "right", c: Creature): "left" | "right" {
+  const down = Math.abs(wrapAngle(c.phi)) > Math.PI / 2;
+  return down ? (turn === "left" ? "right" : "left") : turn;
+}
+
+/** The angle round the bark at arc length s where the surface faces most nearly UP in the world (th = 0 is the frame's `u`, which is not world-up on a leaning or downward branch), and how up (0..1) that is. */
+function topOf(cur: Branch, s: number): { th: number; up: number } {
+  const f = frameAt(cur, Math.min(cur.total, Math.max(0, s)));
+  return { th: Math.atan2(f.b.y, f.u.y), up: Math.hypot(f.u.y, f.b.y) };
+}
+
+/** The plain angle difference (target - now) when turning through the bark's underside would hang the animal (the branch is not vertical), else undefined. */
+function topWay(cur: Branch, s: number, now: number, target: number): number | undefined {
+  const top = topOf(cur, s);
+  if (top.up < 0.35) return undefined; // (nearly vertical: no underside to speak of)
+  // the path through the underside is the one that crosses top.th + pi; the other way is the plain difference measured from the top
+  const rel = (a: number): number => wrapAngle(a - top.th);
+  return rel(target) - rel(now);
+}
+
+/**
+ * Walking W / S along a branch: but an animal whose grip drains (it hangs under a non-vertical branch) first turns round the bark to the
+ * top, where it holds on, so a long walk along a thin twig it entered from below does not end in a fall (and the same fall again).
+ */
+function cruise(c: Creature, cur: Branch, key: "forward" | "back", climb = false): Input {
+  const s = Math.min(cur.total, Math.max(0, c.head.s));
+  const top = topOf(cur, s);
+  if (c.gripOn && !c.animal.clings && top.up > 0.2 && surfacePoint(cur, s, c.head.th).n.y < -0.25) {
+    const dth = wrapAngle(top.th - c.head.th);
+    return { ...NO_INPUT, [pressFor(dth >= 0 ? "right" : "left", c)]: true };
+  }
+  return { ...NO_INPUT, [key]: true, climb };
+}
+
 export class Autopilot {
   status: PilotStatus = "walking";
   /** Simulated seconds since the walk began. */
@@ -82,14 +121,14 @@ export class Autopilot {
   private phaseFor = "";
   private turn: "left" | "right" = "right";
   /** Watchdog: where the animal was when it last moved a real distance, and how long ago (simulated seconds). */
-  private entry = new Map<string, number>();
+  private entry = new Map<string, { s: number; th: number }>();
   private anchor: V3 | null = null;
   private anchorAge = 0;
 
   constructor(
     readonly goal: Goal,
     /** Give up after this many simulated seconds. */
-    readonly timeout = 120,
+    public timeout = 120,
   ) {}
 
   private fail(reason: string): Input {
@@ -127,18 +166,21 @@ export class Autopilot {
       this.route = routeBetween(world, cur.id, goal.id);
       if (!this.route) return this.fail("no route");
       idx = 0;
+      // a long walk for a slow animal takes a long time: allow ~3x the plain walking time of the route (never less than the default)
+      const len = this.route.reduce((a, id) => a + (world.branches.get(id)?.total ?? 0), 0);
+      this.timeout = Math.min(900, Math.max(this.timeout, (3 * len) / Math.max(20, c.animal.speed) + 30));
     }
     const nextId = this.route![idx + 1];
     const next = world.branches.get(nextId);
     if (!next) return this.fail("route broken");
     const s = c.head.s;
 
-    if (cur.parent === nextId) return { ...NO_INPUT, back: true };
+    if (cur.parent === nextId) return cruise(c, cur, "back");
 
     if (cur.next.includes(nextId)) {
       // one continuation: just walk to the end; several (a fork, the hub): turn to the side of the bark the wanted one leaves from first
       if (cur.next.length > 1) return this.sideApproach(world, c, cur, next);
-      return { ...NO_INPUT, forward: true, climb: this.staying(world, cur, s, null) };
+      return cruise(c, cur, "forward", this.staying(world, cur, s, null));
     }
 
     if (cur.side.includes(nextId)) return this.sideApproach(world, c, cur, next);
@@ -146,11 +188,11 @@ export class Autopilot {
   }
 
   /** Hold Shift (= stay on this branch) while walking W if an ordinary side branch would otherwise pull us in and no root / thread zone is near. */
-  private staying(world: World, cur: Branch, s: number, exclude: string | null): boolean {
+  private staying(world: World, cur: Branch, s: number, exclude: string | null, until = Infinity): boolean {
     let ordinary = false;
     let special = false;
     const lo = s - 25;
-    const hi = s + 170;
+    const hi = Math.min(s + 170, until); // (`until`: only branches BELOW the one we are lining up for: Shift held inside its own zone would stay out of it)
     for (const id of cur.side) {
       if (id === exclude) continue;
       const ch = world.branches.get(id);
@@ -169,13 +211,15 @@ export class Autopilot {
    */
   private sideApproach(world: World, c: Creature, cur: Branch, child: Branch): Input {
     const isNext = cur.next.includes(child.id);
-    const attach = isNext ? cur.total : child.attachS ?? cur.total;
-    const key = `${cur.id}>${child.id}@${attach.toFixed(1)}`;
-    let thT = this.entry.get(key);
-    if (thT === undefined) {
-      thT = entryTheta(cur, child, attach); // the side of the bark the child's base zone is on
-      this.entry.set(key, thT);
+    const key = `${cur.id}>${child.id}`;
+    let ep = this.entry.get(key);
+    if (ep === undefined) {
+      // the side of the bark the child's base zone is on, and how far up its parent that zone is (further than `attachS` for a fat parent)
+      ep = isNext ? { s: cur.total, th: entryTheta(cur, child, cur.total) } : entryPoint(cur, child, child.attachS ?? cur.total);
+      this.entry.set(key, ep);
     }
+    const attach = ep.s;
+    const thT = ep.th;
     // The stump's ground roots form a star at its foot: walking DOWN into one's base zone takes it (no Shift). The animal lines up ABOVE
     // the zones, turns to the side of its root, then walks S.
     if (!isNext && child.root && child.parent === cur.id && !cur.root && !cur.silk) return this.rootEntry(world, c, cur, thT);
@@ -190,18 +234,18 @@ export class Autopilot {
       this.phaseFor = ""; // (too high, or it overshot while entering: line up again from below)
       return { ...NO_INPUT, back: true };
     }
-    if (s < approach - 4) return { ...NO_INPUT, forward: true, climb: this.staying(world, cur, s, child.id) };
+    if (s < approach - 4) return cruise(c, cur, "forward", this.staying(world, cur, s, child.id));
     const lim = c.animal.maxTh;
     if (lim !== undefined && Math.abs(thT) > lim + 0.15) return this.fail("that side of the bark is out of reach"); // (the cat clings only to the upper half)
     const dth = wrapAngle(thT - c.head.th);
-    const turn = this.lineUp(hop, dth, 0.15, 0.8);
+    const turn = this.lineUp(hop, dth, 0.15, 0.8, 1, topWay(cur, s, c.head.th, thT));
     // turning round the bark (A / D alone) creeps the animal tip-ward a little: while it has drifted well up, walk down at the same time
     // (facing base-ward, left and right swap: to keep turning the same way round the bark the other key is needed)
     if (turn) {
       if (s > approach + 18 && !isNext) return { ...NO_INPUT, back: true, [turn === "left" ? "right" : "left"]: true };
-      return { ...NO_INPUT, [turn]: true };
+      return { ...NO_INPUT, [pressFor(turn, c)]: true, climb: !child.silk && !needShift && this.staying(world, cur, s, child.id, attach - 22) };
     }
-    return { ...NO_INPUT, forward: true, climb: needShift || (isNext && this.staying(world, cur, s, null)) };
+    return { ...NO_INPUT, forward: true, climb: needShift || (isNext ? this.staying(world, cur, s, null) : !child.silk && this.staying(world, cur, s, child.id, attach - 22)) };
   }
 
   /**
@@ -212,7 +256,7 @@ export class Autopilot {
    */
   private rootEntry(world: World, c: Creature, cur: Branch, thT: number): Input {
     const top = starTop(world, cur); // the top of every root zone
-    const hi = top + 34;
+    const hi = Math.min(top + 34, Math.max(top + 6, cur.total - 8)); // (a short stump with fat roots: the top of the zones can be within a few px of the tip; never wait for a height it does not have)
     const s = c.head.s;
     const facingDown = Math.abs(wrapAngle(c.phi - Math.PI)) < 1.0; // (a bent descent, back + A/D, keeps the heading within ~0.75 rad of straight down)
     if (!facingDown) {
@@ -233,16 +277,18 @@ export class Autopilot {
    * new hop starts afresh. The turning DIRECTION is fixed when the turn starts: a target on the opposite side of the bark (an angle of
    * about pi away) has no shortest way round, and re-choosing every frame makes the animal jitter in place.
    */
-  private lineUp(key: string, dth: number, near: number, far: number, arcOf = 1): "left" | "right" | null {
+  private lineUp(key: string, dth: number, near: number, far: number, arcOf = 1, viaTop?: number): "left" | "right" | null {
     const abs = Math.abs(dth) * arcOf;
+    // `viaTop` = the plain difference of the angles (no wrap): turning that way passes th = 0, the TOP of the bark, instead of the underside
+    const dir = (): "left" | "right" => ((viaTop ?? dth) >= 0 ? "right" : "left");
     if (this.phaseFor !== key) {
       this.phaseFor = key;
       this.phase = "rotate";
-      this.turn = dth >= 0 ? "right" : "left";
+      this.turn = dir();
     }
     if (this.phase === "enter" && abs > far) {
       this.phase = "rotate";
-      this.turn = dth >= 0 ? "right" : "left";
+      this.turn = dir();
     } else if (this.phase === "rotate" && abs < near) this.phase = "enter";
     return this.phase === "rotate" ? this.turn : null;
   }
@@ -255,16 +301,24 @@ export class Autopilot {
     const ds = g.s - c.head.s;
     const dth = wrapAngle(goalTh - c.head.th);
     const arc = Math.abs(dth) * radiusAt(cur, c.head.s);
-    if (Math.abs(ds) < ARRIVE_S && arc < ARRIVE_ARC) {
+    if (Math.abs(ds) < ARRIVE_S && arc < Math.min(ARRIVE_ARC, 0.5 * radiusAt(cur, c.head.s) + 6)) {
       this.status = "arrived";
       return NO_INPUT;
     }
-    const turn = Math.abs(ds) < 400 ? this.lineUp("goal:" + cur.id, dth, 10, 60, radiusAt(cur, c.head.s)) : null;
-    if (turn) return { ...NO_INPUT, [turn]: true };
+    // (the tolerance is in arc length for thick branches and in angle for thin ones: 10 px of arc is half the way round a 6 px twig, i.e. the underside, where the animal hangs and loses its grip)
+    const rr = radiusAt(cur, c.head.s);
+    const turn = Math.abs(ds) < 400 ? this.lineUp("goal:" + cur.id, dth, Math.min(10, 0.25 * rr), Math.min(60, 0.8 * rr), rr, topWay(cur, c.head.s, c.head.th, goalTh)) : null;
+    if (turn && Math.abs(ds) >= ARRIVE_S) {
+      // turn round the bark only while facing the way the goal lies (A / D alone creep along the heading: facing the wrong way they would walk
+      // off the branch's base or its end); a wrong-way animal first walks W / S, which swings it round
+      const down = Math.abs(wrapAngle(c.phi)) > Math.PI / 2;
+      if (down !== ds < 0) return ds > 0 ? { ...NO_INPUT, forward: true, climb: this.staying(world, cur, c.head.s, null) } : { ...NO_INPUT, back: true };
+    }
+    if (turn) return { ...NO_INPUT, [pressFor(turn, c)]: true, climb: this.staying(world, cur, c.head.s, null) }; // (turning creeps tip-ward: Shift keeps it out of any side branch it passes)
     if (Math.abs(ds) >= ARRIVE_S) {
       if (ds > 0) return { ...NO_INPUT, forward: true, climb: this.staying(world, cur, c.head.s, null) };
       return { ...NO_INPUT, back: true };
     }
-    return dth > 0 ? { ...NO_INPUT, right: true } : { ...NO_INPUT, left: true };
+    return { ...NO_INPUT, [pressFor(dth > 0 ? "right" : "left", c)]: true };
   }
 }

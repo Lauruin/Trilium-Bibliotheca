@@ -14,7 +14,8 @@
 
 import { frameAt, radiusAt, surfacePoint, thetaOf, type V3, type World } from "./world3";
 
-export type PadId = "door" | "altar" | "wisp";
+/** The foot's pads (door, altar, wisp post) and one pad per crown limb of the world tree: `place:<id>`. */
+export type PadId = "door" | "altar" | "wisp" | `place:${string}`;
 
 export interface Pad {
   id: PadId;
@@ -35,6 +36,8 @@ export interface Stone {
 }
 
 export interface Shrine {
+  /** Scale of everything built at the foot, from the trunk's radius (the world tree is giant: 1 = the old 18 px stump). */
+  k: number;
   /** The stump's branch id (the root note). */
   stump: string;
   /** The stump's axis on the ground. */
@@ -57,12 +60,16 @@ export interface Shrine {
 }
 
 const TAU = Math.PI * 2;
-/** Height on the stump (arc length from its foot) where the door and the altar are. */
+/** Height on the stump (arc length from its foot) where the door and the altar are, and the interaction radii (all x the foot scale `k`, see `footScale`). */
 export const FOOT_S = 46;
-/** Interaction radii. */
 export const DOOR_RADIUS = 60;
 export const ALTAR_RADIUS = 60;
 export const WISP_RADIUS = 110;
+/** Interaction radius of a crown pad. */
+export const PLACE_RADIUS = 110;
+
+/** How much bigger than the old 18 px stump the foot of the trunk is: 1 .. 4.5. */
+export const footScale = (R: number): number => Math.min(4.5, Math.max(1, R / 40));
 
 const angDiff = (a: number, b: number): number => {
   const d = (((a - b) % TAU) + TAU + Math.PI) % TAU - Math.PI;
@@ -102,7 +109,7 @@ export function azimuthGaps(azs: readonly number[]): Array<{ mid: number; width:
 }
 
 /** Build the shrine of a world (null when the stump is missing). */
-export function shrineOf(world: World, stumpId: string): Shrine | null {
+export function shrineOf(world: World, stumpId: string, titles?: ReadonlyMap<string, string>): Shrine | null {
   const stump = world.branches.get(stumpId);
   if (!stump || stump.pts.length < 2) return null;
   const groundY = world.groundY ?? stump.pts[0].y;
@@ -114,39 +121,53 @@ export function shrineOf(world: World, stumpId: string): Shrine | null {
   const wispAz = gaps.length > 1 ? gaps[1].mid : doorAz + Math.PI * 0.62;
   const altarAz = gaps.length > 2 ? gaps[2].mid : doorAz + Math.PI;
 
-  const footS = Math.min(FOOT_S, Math.max(8, stump.total * 0.3));
+  const k = footScale(R);
+  const footS = Math.min(FOOT_S * Math.sqrt(k), Math.max(8, stump.total * 0.3));
   const f = frameAt(stump, footS);
   const doorTh = thetaOf(f, dir(doorAz));
   const altarTh = thetaOf(f, dir(altarAz));
   const doorPos = surfacePoint(stump, footS, doorTh, 6).p;
   const altarPos = surfacePoint(stump, footS, altarTh, 6).p;
 
-  const postR = R + 52;
+  const kp = Math.sqrt(k);
+  const postR = R + 52 * kp;
   const wd = dir(wispAz);
   const base: V3 = { x: centre.x + wd.x * postR, y: groundY, z: centre.z + wd.z * postR };
-  const top: V3 = { x: base.x, y: groundY + 92, z: base.z };
-  const perch: V3 = { x: base.x, y: top.y + 26, z: base.z };
+  const top: V3 = { x: base.x, y: groundY + 92 * kp, z: base.z };
+  const perch: V3 = { x: base.x, y: top.y + 26 * kp, z: base.z };
 
   const pads: Pad[] = [
-    { id: "door", label: "walk through the door into the library", pos: doorPos, radius: DOOR_RADIUS },
-    { id: "altar", label: "open the shrine", pos: altarPos, radius: ALTAR_RADIUS },
-    { id: "wisp", label: "ask the wisp (search)", pos: perch, radius: WISP_RADIUS },
+    { id: "door", label: "walk through the door into the library", pos: doorPos, radius: DOOR_RADIUS * kp },
+    { id: "altar", label: "open the shrine", pos: altarPos, radius: ALTAR_RADIUS * kp },
+    { id: "wisp", label: "ask the wisp (search)", pos: perch, radius: WISP_RADIUS * kp },
   ];
+  // the crown: one pad at the tip of each place limb (a game mode / tool), reached by climbing the world tree
+  for (const b of world.branches.values()) {
+    if (!b.place || b.silk) continue;
+    const th = topTheta(b, b.total * 0.9);
+    pads.push({ id: `place:${b.place}`, label: titles?.get(b.id) ?? b.place, pos: surfacePoint(b, b.total * 0.9, th, 8).p, radius: PLACE_RADIUS });
+  }
 
   // standing stones in the free stretches of a ring round the stump (deterministic: a fixed count, jittered by index)
-  const ringR = R + 40;
+  const ringR = R + 40 * kp;
   const blocked = [...roots, doorAz, wispAz, altarAz];
   const stones: Stone[] = [];
-  const N = 11;
+  const N = Math.min(24, Math.round(11 * Math.sqrt(k)));
   for (let i = 0; i < N; i++) {
     const az = (i / N) * TAU + 0.31;
     if (blocked.some((b) => Math.abs(angDiff(az, b)) < 0.26)) continue;
     const j = Math.sin(i * 12.9898 + 4.1) * 0.5 + 0.5;
-    const rr = ringR + (j - 0.5) * 16;
-    stones.push({ x: centre.x + Math.cos(az) * rr, z: centre.z + Math.sin(az) * rr, w: 9 + j * 8, h: 14 + (1 - j) * 18, rot: az + j });
+    const rr = ringR + (j - 0.5) * 16 * kp;
+    stones.push({ x: centre.x + Math.cos(az) * rr, z: centre.z + Math.sin(az) * rr, w: (9 + j * 8) * kp, h: (14 + (1 - j) * 18) * kp, rot: az + j });
   }
 
-  return { stump: stumpId, centre, groundY, stumpR: R, doorAz, wispAz, altarAz, doorTh, altarTh, footS, post: { base, top }, perch, pads, stones };
+  return { k, stump: stumpId, centre, groundY, stumpR: R, doorAz, wispAz, altarAz, doorTh, altarTh, footS, post: { base, top }, perch, pads, stones };
+}
+
+/** The angle round a branch at arc length s where its surface faces most nearly up in the world. */
+function topTheta(b: { total: number } & Parameters<typeof frameAt>[0], s: number): number {
+  const f = frameAt(b, s);
+  return Math.atan2(f.b.y, f.u.y);
 }
 
 /** The pad a visitor at `p` can use (nearest by fraction of its radius, within it), else null. */
