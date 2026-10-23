@@ -1,6 +1,6 @@
 /**
  * main.tsx — entry point. React overlay mounts on #root; the Phaser canvas
- * host (#game-host) is owned by App's mount effect.
+ * host (#game-host) is rendered by ui/LibraryHost.tsx, a lazy chunk that App mounts the first time the library is shown.
  */
 
 import { StrictMode } from "react";

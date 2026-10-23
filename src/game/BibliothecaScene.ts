@@ -240,6 +240,7 @@ export class BibliothecaScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       if (BibliothecaScene.current === this) BibliothecaScene.current = null;
     });
+    bus.emit("scene:ready", undefined); // the game starts lazily: React hands over the world when it has one
   }
 
   /**

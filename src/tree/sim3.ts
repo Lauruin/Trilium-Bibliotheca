@@ -61,7 +61,7 @@
  */
 
 import {
-  add, cross, dist, frameAt, len, lerp3, mul, nearestOnBranch, normalAt, norm, radiusAt, sub, surfacePoint, thetaOf, v3, wrapAngle,
+  add, cross, dist, entryTheta, frameAt, len, lerp3, mul, nearestOnBranch, normalAt, norm, radiusAt, sub, surfacePoint, thetaOf, v3, wrapAngle,
   type Branch, type Nearest, type V3, type World,
 } from "./world3";
 import { SILK_ENTRY, addSilk, newSilkId } from "./silk";
@@ -506,8 +506,8 @@ function maxD(a: Animal): number {
   return Math.max(...a.nodes.map((n) => n.d));
 }
 
-export function spawn(world: World, animal: Animal, branchId: string, s: number, moveMode: MoveMode = "free"): Creature {
-  const head: SurfacePos = { b: branchId, s, th: 0 };
+export function spawn(world: World, animal: Animal, branchId: string, s: number, moveMode: MoveMode = "free", th = 0): Creature {
+  const head: SurfacePos = { b: branchId, s, th };
   const c: Creature = { animal, flight: null, autoAlign: true, moveMode, omega: 0, swing: 0, head, phi: 0, speedNow: 0, D: 0, trail: [], feet: [], air: null, reach: null, silk: null, aim: null, grip: 1, gripOn: true, shake: 0, climbHeld: false, time: 0 };
   c.feet = animal.legs.map(() => ({ at: { ...head }, from: { ...head }, to: { ...head }, t: -1 }));
   prefillTrail(world, c);
@@ -867,10 +867,63 @@ export function canUseThreads(a: Animal): boolean {
   return !!a.clings || Math.max(...a.nodes.map((n) => n.w)) <= 6;
 }
 
+// ---- the star junction at the stump's foot -----------------------------------------------------------------------------------
+/** How far round the bark (radians) a ground root still counts as "the root on the side you face". */
+export const STAR_ARC = 0.85;
+/** The heading (radians from the branch axis, pi = straight down) beyond which a walker counts as facing down: a U-turn that is still swinging round does not take a root yet. */
+export const STAR_FACING = 1.9;
+const rootAngle = new WeakMap<Branch, number>();
+
+/** The ground roots of a stump (side branches flagged `root`); empty for any other branch. */
+function rootsOf(world: World, b: Branch): Branch[] {
+  if (b.silk || b.root) return [];
+  const out: Branch[] = [];
+  for (const id of b.side) {
+    const ch = world.branches.get(id);
+    if (ch && ch.root && !ch.silk && ch.parent === b.id) out.push(ch);
+  }
+  return out;
+}
+
+/** Height on the stump below which a root's zone applies. */
+const starFoot = (ch: Branch): number => (ch.attachS ?? 0) + radiusAt(ch, 0) * 0.8 + 24;
+
+/** The top of every root zone of the stump `b` (0 when it has no roots). */
+export function starTop(world: World, b: Branch): number {
+  let top = 0;
+  for (const ch of rootsOf(world, b)) top = Math.max(top, starFoot(ch));
+  return top;
+}
+
+/**
+ * The ground root a walker at (b, s, th) would take walking DOWN: the root whose angle round the stump is nearest (within STAR_ARC) when
+ * the walker is below that root's top. `skip` = the root it just came up out of: when that one is the nearest, nothing is taken. Null on any other branch.
+ */
+export function starRoot(world: World, b: Branch, s: number, th: number, skip?: string): Branch | null {
+  let best: Branch | null = null;
+  let bd = STAR_ARC;
+  const roots = rootsOf(world, b);
+  if (roots.length === 0 || s > starTop(world, b)) return null; // (one common height, so the NEAREST root is chosen, not the first one whose own top is reached)
+  for (const ch of roots) {
+    let a = rootAngle.get(ch);
+    if (a === undefined) {
+      a = entryTheta(b, ch, ch.attachS ?? 0);
+      rootAngle.set(ch, a);
+    }
+    const d = Math.abs(wrapAngle(th - a));
+    if (d < bd) {
+      bd = d;
+      best = ch;
+    }
+  }
+  return best && best.id === skip ? null : best; // (the nearest root is the one it just came up: no other root is "on the side it faces")
+}
+
 /** The side branch (or silk thread) Shift would climb into right now (standing in its base / at the thread's end), else null. */
 export function climbTarget(world: World, c: Creature): Branch | null {
   if (c.air || c.reach || c.flight || c.silk) return null;
-  return sideEntry(world, world.branches.get(c.head.b)!, c.head.s, c.head.th, canUseThreads(c.animal) && !(c.threadCool && c.threadCool > 0))?.ch ?? null;
+  const b = world.branches.get(c.head.b)!;
+  return sideEntry(world, b, c.head.s, c.head.th, canUseThreads(c.animal) && !(c.threadCool && c.threadCool > 0))?.ch ?? starRoot(world, b, c.head.s, c.head.th, c.noAuto);
 }
 
 /**
@@ -878,12 +931,13 @@ export function climbTarget(world: World, c: Creature): Branch | null {
  * far end is attached to `b`: `end` says which; 0 = start, 1 = end) when the spot is within SILK_ENTRY px of that end, and only
  * for animals that can use threads.
  */
-function sideEntry(world: World, b: Branch, s: number, th: number, threads: boolean): { ch: Branch; end: 0 | 1 | null } | null {
+function sideEntry(world: World, b: Branch, s: number, th: number, threads: boolean, skip?: string): { ch: Branch; end: 0 | 1 | null } | null {
   const here = surfacePoint(b, s, th).p;
   let other: { ch: Branch; end: 0 | 1 | null } | null = null;
   for (const id of b.side) {
     const ch = world.branches.get(id);
-    if (!ch) continue;
+    if (!ch || id === skip) continue;
+    if (ch.root && ch.parent === b.id && !b.root && !b.silk) continue; // a stump's roots are the star junction's business (starRoot)
     if (ch.silk) {
       if (!threads) continue;
       const d0 = ch.parent === b.id ? dist(here, ch.pts[0]) : Infinity;
@@ -891,13 +945,18 @@ function sideEntry(world: World, b: Branch, s: number, th: number, threads: bool
       if (!other && Math.min(d0, d1) < SILK_ENTRY) other = { ch, end: d0 <= d1 ? 0 : 1 };
       continue;
     }
-    const n = nearestOnBranch(ch, here);
-    if (n.dist < radiusAt(ch, n.s) * 0.8 + 4 && n.s < radiusAt(b, s) * 2.5 + ch.r) {
+    if (inBaseZone(b, s, ch, here)) {
       if (!ch.root) return { ch, end: null }; // an ordinary side branch wins over a ground root / thread in the same spot
       other ??= { ch, end: null };
     }
   }
   return other;
+}
+
+/** Is the spot `here` (on `b` at arc length s) in the base zone of its side branch `ch` (the zone auto-climb / Shift act in)? */
+function inBaseZone(b: Branch, s: number, ch: Branch, here: V3): boolean {
+  const n = nearestOnBranch(ch, here);
+  return n.dist < radiusAt(ch, n.s) * 0.8 + 4 && n.s < radiusAt(b, s) * 2.5 + ch.r;
 }
 
 function updateShake(c: Creature): void {
@@ -961,26 +1020,39 @@ function moveHead(world: World, c: Creature, dS: number, dW: number, travelled: 
       transfer(parent, clamp(b.attachS ?? 0, 0, parent.total), b.pts[0]); // a thread's start is its anchor
     }
     else if (parent) {
-      c.noAuto = b.silk || b.root ? undefined : b.id; // we just came down out of this branch's base: do not walk straight back in
+      c.noAuto = b.silk ? undefined : b.id; // we just came down out of this branch's base (a ground root: up onto the stump): do not walk straight back in
       transfer(parent, (b.attachS ?? parent.total) + s);
-    } else s = 0;
+    } else {
+      s = 0; // the foot of a stump (no parent): the star junction still applies right at the bottom
+      const r = dS < 0 && !c.climbHeld && Math.abs(c.phi) > STAR_FACING ? starRoot(world, b, 0, th, c.noAuto) : null;
+      if (r) transfer(r, nearestOnBranch(r, surfacePoint(b, 0, th).p).s);
+    }
   } else {
     // side branches. An ORDINARY side branch (not a ground root, not a silk thread) is entered AUTOMATICALLY while you walk tip-ward in
     // the zone where it leaves the bark (that zone is the side of the bark it grows from: walking on the other side passes it);
-    // holding Shift means "stay on this branch". Walking down (S) never turns you into a side branch. Ground roots and silk threads
-    // keep the old rule: Shift climbs in (you can still walk past).
-    const e = sideEntry(world, b, s, th, canUseThreads(c.animal) && !(c.threadCool && c.threadCool > 0));
-    if (e && (e.end !== null || e.ch.root)) {
+    // holding Shift means "stay on this branch". Walking down (S) never turns you into an ordinary side branch. Silk threads and
+    // ground roots that do not leave a stump keep the old rule: Shift climbs in (you can still walk past); the stump's roots
+    // are entered walking DOWN (the star junction, below).
+    const e = sideEntry(world, b, s, th, canUseThreads(c.animal) && !(c.threadCool && c.threadCool > 0), c.noAuto); // (the branch we just came out of is not offered again)
+    if (e && e.end !== null) {
       if (c.climbHeld) {
-        if (e.end !== null) {
-          transfer(e.ch, e.end === 0 ? 0 : e.ch.total); // a thread: start walking along it, away from the end you stand at
-          c.phi = e.end === 0 ? 0 : Math.PI;
-        } else transfer(e.ch, nearestOnBranch(e.ch, surfacePoint(b, s, th).p).s);
+        transfer(e.ch, e.end === 0 ? 0 : e.ch.total); // a thread: start walking along it, away from the end you stand at
+        c.phi = e.end === 0 ? 0 : Math.PI;
       }
     } else if (e) {
-      if (e.ch.id !== c.noAuto && !c.climbHeld && dS > 0) transfer(e.ch, nearestOnBranch(e.ch, surfacePoint(b, s, th).p).s);
+      if (!c.climbHeld && dS > 0) transfer(e.ch, nearestOnBranch(e.ch, surfacePoint(b, s, th).p).s);
     }
-    if (!e || e.ch.id !== c.noAuto) c.noAuto = undefined; // out of that zone (or somewhere else): auto-climb is armed again
+    if (!e || e.end === null) {
+      // THE STAR JUNCTION: the ground roots meet at the stump like a star. Walking DOWN the stump below the roots' tops takes the root
+      // nearest the side of the bark you face (STAR_ARC); Shift = stay on the stump. Nothing to do on any other branch.
+      const r = dS < 0 && !c.climbHeld && Math.abs(c.phi) > STAR_FACING ? starRoot(world, b, s, th, c.noAuto) : null; // (facing down: not in the middle of a U-turn)
+      if (r) transfer(r, nearestOnBranch(r, surfacePoint(b, s, th).p).s);
+    }
+    if (c.noAuto) {
+      const ch = world.branches.get(c.noAuto);
+      if (!ch || ch.parent !== b.id) c.noAuto = undefined;
+      else if (ch.root ? starRoot(world, b, s, th)?.id !== ch.id : !inBaseZone(b, s, ch, surfacePoint(b, s, th).p)) c.noAuto = undefined; // out of that zone: auto-climb is armed again
+    }
   }
 
   if (lim !== undefined && Math.abs(th) > lim) {

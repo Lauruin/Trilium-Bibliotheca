@@ -5,10 +5,13 @@
  * Results are full notes; clicking one opens the book popup. This is the
  * "basic keyword search" amenity from game-ui.md — the semantic/RAG
  * "receptionist" is a later capability of the intelligence service.
+ * In the tree view a result that is part of the tree can also be walked to ("take me there": the animal's autopilot) or lit up
+ * ("light the way": the wisp flies to it and hovers beside it with a beam), see tree/bridge.ts.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { getClient } from "../state/store";
+import { getTreeBridge } from "../tree/bridge";
 
 export function SearchPanel(props: {
   onClose: () => void;
@@ -77,19 +80,49 @@ export function SearchPanel(props: {
         </form>
         {error && <p className="error-line">{error}</p>}
         <ul className="search-results">
-          {results.map((r) => (
-            <li key={r.noteId}>
-              <button
-                onClick={() => {
-                  props.onClose();
-                  props.onOpenNote(r.noteId);
-                }}
-              >
-                <span className="badge">{r.type}</span>
-                {r.title}
-              </button>
-            </li>
-          ))}
+          {results.map((r) => {
+            const bridge = getTreeBridge();
+            const inTree = bridge?.has(r.noteId) ?? false;
+            return (
+              <li key={r.noteId} className="search-result">
+                <button
+                  className="search-open"
+                  title="Open it in the reader"
+                  onClick={() => {
+                    props.onClose();
+                    props.onOpenNote(r.noteId);
+                  }}
+                >
+                  <span className="badge">{r.type}</span>
+                  {r.title}
+                </button>
+                {inTree && (
+                  <>
+                    <button
+                      className="search-act"
+                      title="The animal walks there by itself (any key stops it)"
+                      onClick={() => {
+                        props.onClose();
+                        bridge?.walkTo(r.noteId);
+                      }}
+                    >
+                      take me there
+                    </button>
+                    <button
+                      className="search-act"
+                      title="The wisp flies there and hovers beside it with a beam of light"
+                      onClick={() => {
+                        props.onClose();
+                        bridge?.lightTo(r.noteId);
+                      }}
+                    >
+                      light the way
+                    </button>
+                  </>
+                )}
+              </li>
+            );
+          })}
           {results.length === 0 && !busy && !error && (
             <li className="dim-line">no results yet — type and search</li>
           )}

@@ -213,3 +213,30 @@ export function makeDemoWorld(): World {
   addBranch(w, makeBranch("climb", smoothPath([P(1000, -20, 160), P(1010, 200, 170), P(990, 420, 150), P(1020, 650, 180), P(1000, 900, 160)]), 40, "trunk", 1010));
   return w;
 }
+
+/**
+ * The angle round `cur`'s bark at arc length `attach` where the surface is closest to `child`'s centreline: the spot where the child's
+ * base zone is (the simulation's side-branch entry looks at exactly this distance). Coarse scan, then refined.
+ */
+export function entryTheta(cur: Branch, child: Branch, attach: number): number {
+  let best = 0;
+  let bd = Infinity;
+  for (let k = 0; k < 48; k++) {
+    const th = wrapAngle((k / 48) * Math.PI * 2);
+    const d = nearestOnBranch(child, surfacePoint(cur, attach, th).p).dist;
+    if (d < bd) {
+      bd = d;
+      best = th;
+    }
+  }
+  for (let step = 0.07; step > 0.004; step /= 2) {
+    for (const th of [best - step, best + step]) {
+      const d = nearestOnBranch(child, surfacePoint(cur, attach, th).p).dist;
+      if (d < bd) {
+        bd = d;
+        best = wrapAngle(th);
+      }
+    }
+  }
+  return best;
+}

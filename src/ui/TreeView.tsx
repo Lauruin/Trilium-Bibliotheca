@@ -21,8 +21,10 @@ import { planChanges, recalcAll, saveChanges, setPending, type Pending } from ".
 import { journal, undoEdit } from "../lib/worldedit";
 import { getClient, getState, notify, useAppStore } from "../state/store";
 import type { LibraryTree } from "../types";
+import { setTreeBridge } from "../tree/bridge";
 import { BranchPanel } from "./BranchPanel";
 import { PerfOverlay } from "./PerfOverlay";
+import { ShrinePanel, type ShrineSection } from "./ShrinePanel";
 
 /** A branch's display name: the folder's title ("Library" for the root); a ground root (`root:<tree>`) is "<tree> roots". */
 function branchTitle(id: string, tree: LibraryTree | null): string {
@@ -42,6 +44,10 @@ export function TreeView(props: {
   /** Keyboard input is ignored while a dialog is open. */
   enabled: boolean;
   onOpenNote: (noteId: string) => void;
+  /** The shrine's door: walk into the library. */
+  onEnterLibrary: () => void;
+  /** The wisp: open the search. */
+  onOpenSearch: () => void;
 }): React.JSX.Element {
   const state = useAppStore();
   const tree = state.tree;
@@ -55,6 +61,8 @@ export function TreeView(props: {
   const [editId, setEditId] = useState<string | null>(null);
   const [pending, setPendingState] = useState<Pending>({});
   const [busy, setBusy] = useState(false);
+  /** The shrine panel (E at the altar). */
+  const [shrineOpen, setShrineOpen] = useState(false);
   const deferredPending = useDeferredValue(pending);
   /** forest (every top-level folder its own tree, joined by ground roots) or hub (the original); key Y, remembered. */
   const [mode, setMode] = useState<LayoutMode>(loadLayoutMode);
@@ -71,10 +79,14 @@ export function TreeView(props: {
     });
   const openRef = useRef(props.onOpenNote);
   openRef.current = props.onOpenNote;
+  const propsRef = useRef(props);
+  propsRef.current = props;
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
   const hudRef = useRef(hud);
   hudRef.current = hud;
+  const shrineOpenRef = useRef(shrineOpen);
+  shrineOpenRef.current = shrineOpen;
   const toggleModeRef = useRef(toggleMode);
   toggleModeRef.current = toggleMode;
   const lengths = useRef(new Map<string, number>());
@@ -99,6 +111,14 @@ export function TreeView(props: {
     scene.setWorld(first.world, first.leaves, first.rootBranchId, 120, titlesOf(first, getState().tree));
     applied.current = first;
     scene.onInteract = (leaf) => openRef.current(leaf.id);
+    scene.setShrine(true);
+    scene.moveToShrine(); // you start (and arrive back from the library) at the shrine's door
+    scene.onPad = (id) => {
+      if (id === "door") propsRef.current.onEnterLibrary();
+      else if (id === "wisp") propsRef.current.onOpenSearch();
+      else setShrineOpen(true);
+    };
+    setTreeBridge({ has: (id) => scene.locate(id) !== null, walkTo: (id) => scene.walkToNote(id), lightTo: (id) => scene.lightNote(id) });
     scene.onWalkEnd = (status, reason) => {
       if (status === "failed") notify("warn", `Could not walk there: ${reason}`);
     };
@@ -132,6 +152,7 @@ export function TreeView(props: {
     }
     return () => {
       ctrl.abort();
+      setTreeBridge(null);
       scene.dispose();
       sceneRef.current = null;
       applied.current = null;
@@ -157,7 +178,7 @@ export function TreeView(props: {
     const onKey = (e: KeyboardEvent): void => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
-      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || !props.enabled) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || !props.enabled || shrineOpenRef.current) return;
       if (e.key.toLowerCase() === "y") {
         toggleModeRef.current(); // layout: forest / hub
         return;
@@ -211,8 +232,51 @@ export function TreeView(props: {
   };
 
   useEffect(() => {
-    if (sceneRef.current) sceneRef.current.enabled = props.enabled;
-  }, [props.enabled, layout]);
+    if (sceneRef.current) sceneRef.current.enabled = props.enabled && !shrineOpen;
+  }, [props.enabled, layout, shrineOpen]);
+
+  const shrineSections: ShrineSection[] = [
+    {
+      id: "library",
+      title: "The library",
+      help: "The side-scrolling rooms: every folder a room, every note a book. The door in the stump's foot leads there too; T brings you back out.",
+      body: (
+        <div className="shrine-row">
+          <button
+            onClick={() => {
+              setShrineOpen(false);
+              props.onEnterLibrary();
+            }}
+          >
+            enter the library
+          </button>
+        </div>
+      ),
+    },
+    {
+      id: "wisp",
+      title: "The wisp",
+      help: "It rests on the lantern post here and answers to a click (or E beside it) with the search. In search results, “take me there” walks you to a note and “light the way” sends the wisp to hover beside it with a beam.",
+      body: (
+        <div className="shrine-row">
+          <button className={hud?.wispMode === "perch" ? "active" : ""} onClick={() => sceneRef.current?.setWispMode("perch")}>
+            stays here
+          </button>
+          <button className={hud?.wispMode === "follow" ? "active" : ""} onClick={() => sceneRef.current?.setWispMode("follow")}>
+            follows me
+          </button>
+          <button
+            onClick={() => {
+              setShrineOpen(false);
+              props.onOpenSearch();
+            }}
+          >
+            search
+          </button>
+        </div>
+      ),
+    },
+  ];
 
   const title0 = (id: string): string => tree?.notes[id]?.title ?? id;
   const crumbs = layout && hud ? pathToRoot(layout, hud.branch) : [];
@@ -242,6 +306,7 @@ export function TreeView(props: {
           onClose={closeEditor}
         />
       )}
+      {shrineOpen && <ShrinePanel sections={shrineSections} onClose={() => setShrineOpen(false)} />}
       {error && <p className="error-line tree-error">{error}</p>}
       {hud && (
         <>
@@ -254,8 +319,19 @@ export function TreeView(props: {
             ))}
             <span className="dim-line"> · {hud.animal}{hud.airborne ? " · airborne" : ""}{hud.reaching ? " · reaching" : ""}</span>
           </div>
-          {(hud.nearLeaf || hud.climb || hud.aiming || hud.dangling || hud.canSilk || hud.walking) && (
+          {(hud.nearLeaf || hud.climb || hud.aiming || hud.dangling || hud.canSilk || hud.walking || hud.pad || hud.hoverWisp) && (
             <div className="tree-hint">
+              {hud.hoverWisp && (
+                <span>
+                  <b>click</b> the wisp to search{(hud.pad || hud.climb || hud.nearLeaf) && " · "}
+                </span>
+              )}
+              {hud.pad && !hud.hoverWisp && (
+                <span className="tree-pad">
+                  <b>E</b> {hud.pad.label}
+                  {(hud.climb || hud.nearLeaf) && " · "}
+                </span>
+              )}
               {hud.walking && (
                 <span>
                   <b>Walking there</b> · any key or <b>Esc</b> stops{(hud.climb || hud.nearLeaf) && " · "}
@@ -280,7 +356,7 @@ export function TreeView(props: {
               )}
               {hud.climb && hud.climbAuto && (
                 <span>
-                  walking up enters “{title0(hud.climb)}” · hold <b>Shift</b> to stay on this branch
+                  walking {hud.climbDown ? "down" : "up"} enters “{hud.climb.startsWith("root:") ? branchTitle(hud.climb, tree) : title0(hud.climb)}” · hold <b>Shift</b> to stay on this branch
                 </span>
               )}
               {hud.climb && !hud.climbAuto && (
@@ -345,6 +421,9 @@ export function TreeView(props: {
             <button onClick={() => sceneRef.current?.cycleCamera()} title="Camera: chase (rolls with the branch) · level (horizon stays level) · fixed · mouse (drag to orbit round the animal; right-drag works too) (V)">
               camera: {hud.camera}
             </button>
+            <button className={hud.wispMode === "follow" ? "active" : ""} onClick={() => sceneRef.current?.toggleWispMode()} title="The search wisp: perched on the shrine's lantern post, or following you like a lantern">
+              wisp: {hud.wispGuiding ? "lighting the way" : hud.wispMode === "follow" ? "follows you" : "at the shrine"}
+            </button>
             <button className={hud.perf ? "active" : ""} onClick={() => sceneRef.current?.togglePerfOverlay()} title="Performance panel: FPS, where the time goes, quality profile (I)">
               performance: {hud.perfProfile}
             </button>
@@ -363,7 +442,7 @@ export function TreeView(props: {
           )}
           <div className="tree-controls">
             {hud.moveMode === "guided" ? "W up the branch · S down · A/D turn on it (left / right as you face)" : "W forward · A/D steer the heading"} · M move guided/free · hold Space to aim a jump (arc preview, auto-target), release to leap (snake: hold = reach, steer with WASD; squirrel: W dive / S flare; bee, dragonfly, blue jay: Space = take off, then Space up / Shift down or land; jay: W dive, S climb) ·
-            X = spider silk (drop, swing, climb the thread again) · walking up past a side branch's base climbs it, hold Shift to stay (roots and threads: Shift climbs in) · B edit this branch · Y layout forest/hub · E read · click = walk there (double-click a leaf = read it; any key stops) · 1/2/3 animal category (again = next) · G grip {hud.gripOn ? "on" : "off"} · H auto-align (free mode) · N names · F foliage · K shadows · V camera (chase / level / fixed / mouse: drag to orbit) · L look · I performance · wheel/+/− zoom · P pixels · T back to the library
+            X = spider silk (drop, swing, climb the thread again) · walking up past a side branch's base climbs it, hold Shift to stay (roots and threads: Shift climbs in) · B edit this branch · Y layout forest/hub · E read · click = walk there (double-click a leaf = read it; any key stops) · 1/2/3 animal category (again = next) · G grip {hud.gripOn ? "on" : "off"} · H auto-align (free mode) · N names · F foliage · K shadows · V camera (chase / level / fixed / mouse: drag to orbit) · L look · I performance · wheel/+/− zoom · P pixels · E at the shrine: the door (library), the altar (tools), the wisp (search)
           </div>
         </>
       )}

@@ -1,6 +1,6 @@
 /**
  * tree/proto.ts — standalone feel-test page for the Yggdrasil view (lizard3d.html):
- * demo tree, no Trilium (`?vault` = a synthetic vault through the real layout, `&layout=hub|forest` (default forest), `&trees=N` top-level folders, `&depth=D` levels, `&wave=fn:amp:freq` a wave on every branch). Keys: W up the branch / S down / A/D turn on it (M = free mode: W forward, A/D steer) · Space HOLD = aim a jump, release = leap
+ * demo tree, no Trilium (`?vault` = a synthetic vault through the real layout, `&layout=hub|forest` (default forest), `&trees=N` top-level folders, `&depth=D` levels, `&wave=fn:amp:freq` a wave on every branch, `&shrine` the shrine and the wisp's lantern post). Keys: W up the branch / S down / A/D turn on it (M = free mode: W forward, A/D steer) · Space HOLD = aim a jump, release = leap
  * (snake / ant: hold to reach; bee / dragonfly / jay: take off) · X spider silk · 1/2/3 animal categories (again = next) · G grip · H auto-align (free mode) · N branch names · V camera (chase/level/fixed) · L look (voxel/low-poly) · wheel/+/− zoom · P pixel mode · R respawn.
  */
 
@@ -85,6 +85,11 @@ try {
   throw e;
 }
 scene.setWorld(world, leaves, startBranch, startS, new Map([...world.branches.keys()].map((id) => [id, id === 'root' ? 'Library' : id])));
+if (vault && params.has("shrine")) {
+  // `&shrine`: the app's shrine (door, altar, lantern post with the wisp) and the animal at its door
+  scene.setShrine(true);
+  scene.moveToShrine();
+}
 if (vault) {
   // pretend the content lengths were measured: log-uniform 20 .. 40000 characters
   const lens = new Map<string, number>();

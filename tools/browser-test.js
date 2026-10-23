@@ -219,7 +219,9 @@ try {
   });
   page.on("pageerror", (e) => consoleErrors.push(`pageerror: ${e.message}`));
 
-  await page.goto(APP_URL, { waitUntil: "domcontentloaded" });
+  // (the app now STARTS in the tree view when WebGL works; the library parts of this test begin with ?view=library, the tree start is step 2d)
+  await page.goto(`${APP_URL}/?view=library`, { waitUntil: "domcontentloaded" });
+  const hasGl = await page.evaluate(() => { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); });
 
   // 1. World mounts: canvas present, connection online, breadcrumb rendered.
   // (Generous timeouts: a cold vite run transforms the multi-MB Phaser module
@@ -395,13 +397,13 @@ try {
   }
 
   // 2c. Yggdrasil (tree) view: needs WebGL — skipped (with a note) where the browser has none.
-  await page.getByRole("button", { name: "tree", exact: true }).click();
+  if (hasGl) await page.getByRole("button", { name: "tree", exact: true }).click();
   await page.waitForTimeout(2500);
   const rootAttrs = async () =>
     (await (await fetch(`${TRILIUM_URL}/etapi/notes/root`, { headers: { Authorization: TRILIUM_TOKEN } })).json()).attributes ?? [];
-  const noGl = await page.locator(".tree-error").count();
+  const noGl = hasGl ? 0 : 1;
   if (noGl > 0) {
-    ok("tree view: no WebGL in this browser — steps skipped (shows its error message)");
+    ok("tree view: no WebGL in this browser — steps skipped (the app falls back to the library)");
   } else {
     await page.waitForFunction(() => window.__treeScene && window.__treeScene.leaves.length > 0, { timeout: 15000 });
     const stats = await page.evaluate(() => ({ b: window.__treeScene.world.branches.size, l: window.__treeScene.leaves.length }));
@@ -601,11 +603,82 @@ try {
     await page.keyboard.press("Escape");
     await page.locator(".branch-panel button", { hasText: "✕" }).click();
     await page.keyboard.press("l"); // back to the saved look
+    await page.keyboard.press("t"); // T does nothing inside the tree (the library is entered through the shrine's door)
+    await page.waitForTimeout(300);
+    if (await page.locator(".tree-view").count() > 0) ok("tree view: T does nothing (the library is entered through the shrine's door)");
+    else fail("T left the tree view");
+
+    // 2d. The tree is the START view; the library is the door on the shrine; the wisp is the search
+    await page.goto(APP_URL, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".tree-view .tree-canvas canvas", { timeout: 90000 });
+    await page.waitForFunction(() => window.__treeScene && window.__treeScene.shrine && window.__treeScene.leaves.length > 0, { timeout: 90000 });
+    if ((await page.locator("#game-host").count()) === 0) ok("start view: the tree (the Phaser library is not even loaded yet: it is a lazy chunk)");
+    else fail("the library was mounted at start");
+    await page.waitForFunction(() => /through the door/.test(document.querySelector(".tree-hint")?.textContent ?? ""), { timeout: 90000 });
+    ok("the animal starts at the shrine's door (hint: E walk through the door into the library)");
     await page.keyboard.press("t");
+    await page.waitForTimeout(400);
+    if ((await page.locator(".tree-view").count()) > 0 && (await page.locator("#game-host").count()) === 0) ok("T does nothing at the start (it only leaves the library)");
+    else fail("T changed the view in the tree");
+    // the altar: E opens the shrine panel
+    await page.evaluate(() => window.__treeScene.moveToPad("altar"));
+    await page.waitForFunction(() => /open the shrine/.test(document.querySelector(".tree-hint")?.textContent ?? ""), { timeout: 90000 });
+    await page.keyboard.press("e");
+    await page.getByRole("dialog", { name: "Shrine" }).waitFor({ timeout: 15000 });
+    if ((await page.locator('[data-testid="shrine-library"]').count()) > 0 && (await page.locator('[data-testid="shrine-wisp"]').count()) > 0) ok("E at the altar opens the shrine panel (library door + wisp sections)");
+    else fail("shrine panel lacks its sections");
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog", { name: "Shrine" }).waitFor({ state: "detached", timeout: 10000 });
+    // the wisp perched on its lantern post: a click opens the search; results can be walked to / lit
+    await page.evaluate(() => { const s = window.__treeScene; s.moveToPad("wisp"); s.setCamera("fixed"); s.zoomMul = 0.8; });
+    await page.waitForFunction(() => { const s = window.__treeScene; const p = s.wispPoint, q = s.shrine.perch; return Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z) < 30; }, { timeout: 90000 });
+    await page.waitForTimeout(1500);
+    const wp = await page.evaluate(() => { const s = window.__treeScene; return s.screenOf(s.wispPoint); });
+    const cb = await page.locator(".tree-canvas canvas").boundingBox();
+    if (wp && cb) {
+      await page.mouse.move(cb.x + wp.x, cb.y + wp.y);
+      await page.waitForFunction(() => window.__treeScene.overWisp(...Object.values(window.__treeScene.screenOf(window.__treeScene.wispPoint))), { timeout: 5000 }).catch(() => {});
+      await page.mouse.click(cb.x + wp.x, cb.y + wp.y);
+      await page.getByRole("dialog", { name: "Search" }).waitFor({ timeout: 15000 });
+      ok("clicking the wisp on its lantern post opens the search");
+      await page.fill(".search-form input", "Weekly review");
+      await page.locator(".search-form button[type=submit]").click();
+      await page.waitForSelector(".search-results li", { timeout: 15000 });
+      const acts = await page.locator(".search-act").count();
+      if (acts >= 2) {
+        await page.getByRole("button", { name: "take me there" }).first().click();
+        await page.waitForFunction(() => !!window.__treeScene.pilot, { timeout: 15000 });
+        ok("search result: take me there starts the autopilot");
+        await page.evaluate(() => window.__treeScene.cancelPilot());
+        await page.getByRole("button", { name: "search", exact: true }).click();
+        await page.fill(".search-form input", "Weekly review");
+        await page.locator(".search-form button[type=submit]").click();
+        await page.waitForSelector(".search-act", { timeout: 15000 });
+        await page.getByRole("button", { name: "light the way" }).first().click();
+        await page.waitForFunction(() => window.__treeScene.wispGuiding, { timeout: 15000 });
+        ok("search result: light the way sends the wisp to the leaf");
+        await page.evaluate(() => window.__treeScene.setWispMode("perch"));
+      } else fail("the search results offered no take me there / light the way in the tree view");
+      if ((await page.getByRole("dialog", { name: "Search" }).count()) > 0) await page.keyboard.press("Escape");
+    } else fail("the wisp is off screen");
+    // the door: E at the door enters the library; T brings you back to the door
+    await page.evaluate(() => window.__treeScene.moveToPad("door"));
+    await page.waitForFunction(() => /through the door/.test(document.querySelector(".tree-hint")?.textContent ?? ""), { timeout: 90000 });
+    await page.keyboard.press("e");
+    await page.waitForSelector("#game-host canvas", { timeout: 60000 });
+    await page.waitForFunction(() => document.querySelector(".crumb-btn")?.textContent === "Library", { timeout: 30000 });
+    if ((await page.locator(".tree-view").count()) === 0) ok("E at the door walks into the library's root room");
+    else fail("the tree view is still shown after the door");
+    await page.keyboard.press("t");
+    await page.waitForSelector(".tree-view .tree-canvas canvas", { timeout: 60000 });
+    await page.waitForFunction(() => window.__treeScene && window.__treeScene.shrine, { timeout: 90000 });
+    await page.waitForFunction(() => /through the door/.test(document.querySelector(".tree-hint")?.textContent ?? ""), { timeout: 90000 });
+    ok("T in the library goes back out to the tree, at the shrine's door");
+    await page.evaluate(() => window.__treeScene.moveToPad("door"));
+    await page.keyboard.press("e");
   }
-  if (noGl > 0) await page.getByRole("button", { name: "library", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector("#game-host")?.style.display !== "none", { timeout: 10000 });
-  ok("tree view: back to the library rooms");
+  await page.waitForFunction(() => { const g = document.querySelector("#game-host"); return g && g.style.display !== "none"; }, { timeout: 30000 });
+  ok("back in the library rooms");
 
   // 3. Overview toggle via HUD.
   await page.getByRole("button", { name: "overview", exact: true }).click();

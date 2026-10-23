@@ -34,7 +34,7 @@ export function Hud(props: {
       <header className="hud">
         <div className="hud-left">
           <span className="brand">Bibliotheca</span>
-          <nav className="crumbs" aria-label="Room path">
+          {props.view === "library" && <nav className="crumbs" aria-label="Room path">
             {state.path.map((noteId, i) => (
               <span key={noteId} className="crumb">
                 {i > 0 && <span className="crumb-sep">›</span>}
@@ -48,7 +48,7 @@ export function Hud(props: {
               </span>
             ))}
             {state.path.length === 0 && <span className="crumb-dim">no room loaded</span>}
-          </nav>
+          </nav>}
         </div>
         <div className="hud-right">
           <span className={`conn conn-${state.conn}`} title={CONN_LABEL[state.conn]}>
@@ -57,9 +57,11 @@ export function Hud(props: {
           <button onClick={props.onOpenCapture} title="Quick capture a thought (C)">
             capture
           </button>
-          <button onClick={props.onToggleView} className={props.view === "tree" ? "active" : ""} title="Switch between the library rooms and the Yggdrasil tree (T)">
-            {props.view === "tree" ? "library" : "tree"}
-          </button>
+          {props.view === "library" && (
+            <button onClick={props.onToggleView} title="Back to the Yggdrasil tree, at the shrine's door (T)">
+              tree
+            </button>
+          )}
           {props.view === "library" && (
             <button onClick={props.onOpenBuild} title="Build mode: change this room's look (B)">
               build

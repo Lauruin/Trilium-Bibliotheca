@@ -40,6 +40,8 @@ export interface GameEvents {
   /** The folder (door) the player is standing at, or null — drives the description plaque. */
   "focus:note": { noteId: string | null };
   "notice": { level: "info" | "warn" | "error"; text: string };
+  /** The library scene finished creating itself (it is started lazily, the first time the library is needed): hand it the world. */
+  "scene:ready": undefined;
   /**
    * Overview-mode drag result. React persists it (biblio_x/biblio_y labels);
    * the scene has already applied the move to its own placement map, so no

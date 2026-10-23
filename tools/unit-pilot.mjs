@@ -208,7 +208,7 @@ export default async ({ bundle, assert }) => {
         // really there: on the goal branch, within the arrival tolerance (the cat's cling limit clamps the angle)
         assert.equal(c.head.b, goal.b, `${animal}: arrived on the goal branch`);
         assert.ok(Math.abs(c.head.s - goal.s) < AP.ARRIVE_S + 6, `${animal}: arrived at the goal's arc length (${(c.head.s - goal.s).toFixed(1)})`);
-      } else fails.push(`${sb.id}->${gb.id}:${pil.status}:${pil.reason}`);
+      } else fails.push(`${sb.id}->${gb.id}:${pil.status}:${pil.reason}@${c.head.b}/${c.head.s.toFixed(0)}/${c.head.th.toFixed(2)}`);
     }
     return { ok, n, avg: tsum / Math.max(1, ok), fails };
   };
@@ -216,7 +216,7 @@ export default async ({ bundle, assert }) => {
   for (const [wname, w] of [["forest", forest.world], ["hub", hub.world]]) {
     for (const id of ["lizard", "snake", "ant", "spider", "jumper", "squirrel"]) {
       const r = trials(w, id, 14, 17 + id.length);
-      rates[`${wname}/${id}`] = `${r.ok}/${r.n}`;
+      rates[`${wname}/${id}`] = `${r.ok}/${r.n}`; if (r.fails.length && process.env.PILOT_FAILS) console.log("  pilot fails", wname, id, r.fails.join(" "));
       assert.ok(r.ok / r.n >= 0.85, `${wname}/${id}: click-to-walk arrives in at least 85% of random trials (${r.ok}/${r.n}; ${r.fails.slice(0, 3).join(", ")})`);
     }
   }
@@ -297,21 +297,23 @@ export default async ({ bundle, assert }) => {
       }
     }
   }
-  // roots: from one tree to another across the stump needs Shift at the stump's base (the pilot holds it)
+  // roots: from one tree to another across the stump: the star junction (walk DOWN into the root's zone; Shift would stay on the stump)
   {
     const w = forest.world;
     for (const id of ["lizard", "snake", "spider", "ant"]) {
       const c = S.spawn(w, A(id), "F0", 200, "guided");
       c.gripOn = false;
       const pil = new AP.Autopilot({ b: "F2", s: 300, th: 0 });
-      let shiftUsed = false;
+      let shiftBack = false, walkedDown = false;
       for (let i = 0; i < 60 * 120 && pil.status === "walking"; i++) {
         const inp = pil.step(w, c, DT);
-        if (inp.climb && c.head.b === "root") shiftUsed = true;
+        const before = c.head.b;
         S.step(w, c, inp, DT);
+        if (before === "root" && inp.back) walkedDown = true;
+        if (before === "root" && c.head.b.startsWith("root:") && inp.climb) shiftBack = true; // (Shift while lining up low on the stump is fine; entering with it would stay)
       }
       assert.equal(pil.status, "arrived", `${id}: from tree F0 to tree F2 across the stump (${pil.reason})`);
-      assert.ok(shiftUsed, `${id}: the pilot held Shift at the stump's base to enter the root`);
+      assert.ok(walkedDown && !shiftBack, `${id}: the pilot walked down into the root without Shift (Shift = stay)`);
     }
   }
 

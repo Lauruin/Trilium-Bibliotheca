@@ -3,7 +3,8 @@
  * Needs a dev server on APP_URL (default http://localhost:5173) and the full chrome (see AGENTS.md,
  * "WebGL in the dev container"). Writes shots/tree-*.png. Usage: node tools/tree-shots.js [scenario...]
  * Scenarios: looks, level, ground (the floating demo log), leaves, squirrel, snake, vault (?vault: a synthetic
- * vault through the real layout — overview, horizon, leaf kinds), kinds (leaf kinds x sizes), animals   (default: all)
+ * vault through the real layout — overview, horizon, leaf kinds), kinds (leaf kinds x sizes), animals, shrine (?vault&shrine: the stump's
+ * door, altar and the wisp's lantern post; the wisp perched and following)   (default: all)
  */
 import { createRequire } from "node:module";
 const { chromium } = createRequire(import.meta.url)("playwright-core");
@@ -106,6 +107,26 @@ if (run("vault")) {
     await page.waitForTimeout(1500);
     await shot(`vault-leaves-${look}`);
   }
+}
+if (run("shrine")) {
+  // the shrine at the stump's foot (the app's start place): the door, the altar, the lantern post with the wisp, in both looks and from afar
+  await page.goto(url + "?vault&shrine&trees=5&depth=1");
+  await page.waitForFunction(() => window.__treeScene);
+  await page.waitForTimeout(1200);
+  for (const look of ["lowpoly", "voxel"]) {
+    await S("s.setLook(a[0]); s.setFoliage(false); s.setCamera('level'); s.zoomMul = 0.55; s.moveToPad('door')", look);
+    await page.waitForTimeout(2500);
+    await shot(`shrine-door-${look}`);
+  }
+  await S("s.setLook('lowpoly'); s.moveToPad('altar')");
+  await page.waitForTimeout(2200);
+  await shot("shrine-altar");
+  await S("s.moveToPad('wisp'); s.zoomMul = 0.7");
+  await page.waitForTimeout(2200);
+  await shot("shrine-wisp");
+  await S("s.setCamera('fixed'); s.zoomMul = 3.2; s.moveToPad('door'); s.setFoliage(true)");
+  await page.waitForTimeout(2200);
+  await shot("shrine-overview");
 }
 if (run("kinds")) {
   // the demo twig, both looks: the five leaf kinds and sizes side by side

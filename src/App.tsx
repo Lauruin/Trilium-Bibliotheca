@@ -4,17 +4,18 @@
  * all coordination happens here.
  *
  * Boot order:
- *   1. Phaser starts immediately (shows "waiting" until world data arrives).
- *   2. Settings are loaded from localStorage (cache.ts). None → settings modal.
+ *   1. The start view is the TREE (three.js) when WebGL works, else the library (lib/webgl.ts `chooseStartView`; `?view=library`
+ *      forces the library). The Phaser library is a lazy chunk: it is fetched and started the first time the library is shown
+ *      (the shrine's door; or at once as the fallback) and tells React it is ready (`scene:ready`) so it gets the world.
+ *   2. Settings are loaded from localStorage (cache.ts) / the host's /config.json. None → settings modal.
  *   3. With settings: refresh() — probe app-info, walk the tree, compute
  *      placements, hand everything to the scene via `scene:load-world`.
  *   4. On failure: fall back to the cached snapshot (offline mode) or, on an
  *      auth error, show a toast asking the user to check the settings.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_ROOT_NOTE_ID } from "./config";
-import { startGame } from "./game/game";
 import { bus } from "./game/events";
 import { sharedText } from "./lib/capture";
 import { clearSettings, loadSettings, loadTreeCache, saveSettings, saveTreeCache } from "./lib/cache";
@@ -35,6 +36,13 @@ import { SearchPanel } from "./ui/SearchPanel";
 import { TouchControls } from "./ui/TouchControls";
 import { SettingsModal } from "./ui/SettingsModal";
 import { SocratesDialog } from "./ui/SocratesDialog";
+import { chooseStartView, webglAvailable, type ViewName } from "./lib/webgl";
+
+/** The Phaser library is a separate chunk, fetched the first time the library is shown. */
+const LibraryHost = lazy(() => import("./ui/LibraryHost"));
+
+/** Decided once per page load (the toast for a missing WebGL is shown after mount). */
+const START = chooseStartView(typeof window === "undefined" ? "" : window.location.search, typeof document === "undefined" ? true : webglAvailable());
 
 export default function App(): React.JSX.Element {
   const state = useAppStore();
@@ -44,19 +52,28 @@ export default function App(): React.JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
   const [buildOpen, setBuildOpen] = useState(false);
-  /** "library" = the walkable rooms (Phaser); "tree" = the Yggdrasil view (three.js). */
-  const [view, setView] = useState<"library" | "tree">("library");
+  /** "tree" = the Yggdrasil view (three.js, the default start view); "library" = the walkable rooms (Phaser), reached through the shrine's door. */
+  const [view, setView] = useState<ViewName>(START.view);
+  /** The library chunk is only loaded once the library has been shown (it then stays mounted, hidden, while you are in the tree). */
+  const [libraryLoaded, setLibraryLoaded] = useState(START.view === "library");
   /** Text handed over by the OS share sheet (PWA share target), consumed once. */
   const [shared, setShared] = useState<string | null>(null);
   /** A share arrived with the page load (the ref survives StrictMode's second effect run, which no longer sees the query). */
   const shareArrived = useRef(false);
 
-  // --- Phaser boot (once) ---------------------------------------------------
-  const hostRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (!hostRef.current) return;
-    const game = startGame(hostRef.current);
-    return () => void game.destroy(true);
+    if (view === "library") setLibraryLoaded(true);
+  }, [view]);
+  useEffect(() => {
+    if (START.fellBack) notify("warn", "This browser has no WebGL, so the tree view is unavailable: showing the library.");
+  }, []);
+
+  /** The shrine's door: walk into the library's root room. */
+  const enterLibrary = useCallback((): void => {
+    setLibraryLoaded(true);
+    setView("library");
+    const st = getState();
+    if (st.tree) bus.emit("scene:enter-room", { noteId: st.rootNoteId }); // (a library that is not loaded yet starts in the root room anyway)
   }, []);
 
   // --- first run / boot: hydrate settings, open modal if none ---------------
@@ -127,6 +144,10 @@ export default function App(): React.JSX.Element {
       bus.on("search:open", () => setSearchOpen(true)),
       bus.on("socrates:open", () => setSocratesOpen(true)),
       bus.on("notice", ({ level, text }) => notify(level, text)),
+      bus.on("scene:ready", () => {
+        const st = getState();
+        if (st.tree && st.placements) bus.emit("scene:load-world", { tree: st.tree, placements: st.placements, rootNoteId: st.rootNoteId });
+      }),
       bus.on("layout:move", ({ noteId, x, y }) => void persistLayout(noteId, x, y)),
     ];
     return () => offs.forEach((off) => off());
@@ -167,8 +188,11 @@ export default function App(): React.JSX.Element {
       const st = getState();
       const k = e.key.toLowerCase();
       if (k === "t" && !e.ctrlKey && !e.metaKey && st.tree) {
-        e.preventDefault();
-        setView((v) => (v === "tree" ? "library" : "tree"));
+        // T only LEAVES the library (back to the tree, at the shrine's door); in the tree it does nothing: the library is entered through the door
+        if (view === "library" && webglAvailable()) {
+          e.preventDefault();
+          setView("tree");
+        }
       } else if (k === "b" && !e.ctrlKey && !e.metaKey && st.tree && st.path.length > 0 && !st.overview && view === "library") {
         e.preventDefault();
         setBuildOpen(true);
@@ -219,15 +243,19 @@ export default function App(): React.JSX.Element {
         onOpenCapture={() => setCaptureOpen(true)}
         onOpenBuild={() => state.tree && state.path.length > 0 && !state.overview && setBuildOpen(true)}
         view={view}
-        onToggleView={() => setView((v) => (v === "tree" ? "library" : "tree"))}
+        onToggleView={() => webglAvailable() && setView("tree")}
         onToggleOverview={() =>
           bus.emit("scene:overview", { on: !getState().overview })
         }
         onRefresh={() => void refresh()}
         onOpenSettings={() => setSettingsOpen(true)}
       />
-      <div ref={hostRef} id="game-host" style={view === "tree" ? { display: "none" } : undefined} />
-      {view === "tree" && <TreeView enabled={!modalOpen} onOpenNote={(id) => setBook({ noteId: id })} />}
+      {libraryLoaded && (
+        <Suspense fallback={null}>
+          <LibraryHost hidden={view !== "library"} />
+        </Suspense>
+      )}
+      {view === "tree" && <TreeView enabled={!modalOpen} onOpenNote={(id) => setBook({ noteId: id })} onEnterLibrary={enterLibrary} onOpenSearch={() => setSearchOpen(true)} />}
       {view === "library" && <TouchControls />}
       {view === "library" && <RoomPlaque onOpen={(id) => setBook({ noteId: id })} />}
       {book !== null && (

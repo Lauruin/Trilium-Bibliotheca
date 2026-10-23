@@ -27,8 +27,11 @@ import {
   FrameLimiter, useMsaa, type FrameSummary, type PerfProfile,
 } from "./perf";
 import type { Leaf } from "./layout";
-import { frameAt, nearestOnBranch, radiusAt, surfacePoint, type World } from "./world3";
+import { frameAt, nearestOnBranch, radiusAt, surfacePoint, thetaOf, type World } from "./world3";
 import { clampDensity, FoliageLayer } from "./foliage";
+import { arrival, padNear, shrineOf, type Pad, type PadId, type Shrine } from "./shrine";
+import { buildShrine } from "./shrinemodel";
+import { parseWispMode, wispHit, wispStep, wispTarget, type WispMode } from "./wisp";
 import { CreatureRig } from "./creatures";
 import { CLOUDS, createVignette, environmentKey } from "./scenery";
 import { ContactShadow, foliageDepthMaterial, loadShadowQuality, nextShadowQuality, SHADOW_KEY, SunShadows, tagShadows, type ShadowQuality } from "./shadows";
@@ -87,11 +90,20 @@ export interface HudInfo {
   climb: string | null;
   /** True for an ordinary side branch (entered automatically when you walk tip-ward; Shift stays); false for a ground root / silk thread (Shift climbs in). */
   climbAuto: boolean;
+  /** ... entered walking DOWN (a ground root at the stump's foot), not up. */
+  climbDown: boolean;
   /** Performance profile (quality | auto | fast) and, while the overlay (key I) is on, the live numbers. */
   perfProfile: PerfProfile;
   perf: PerfStats | null;
   /** Click-to-walk is under way (any key stops it). */
   walking: boolean;
+  /** The shrine pad you are standing at (E uses it), or null. */
+  pad: { id: PadId; label: string } | null;
+  /** Where the wisp is: perched on the shrine, following you; and whether it is lighting the way to a leaf. */
+  wispMode: WispMode;
+  wispGuiding: boolean;
+  /** The pointer is over the wisp (a click opens the search). */
+  hoverWisp: boolean;
   /** What is under the pointer (a leaf's or a branch's title) and where, in pixels inside the view; null when nothing / not hovering. */
   hover: { title: string; leaf: boolean; x: number; y: number } | null;
 }
@@ -170,6 +182,21 @@ export class TreeScene {
   onHud: ((h: HudInfo) => void) | null = null;
   /** E pressed near a leaf. */
   onInteract: ((leaf: Leaf) => void) | null = null;
+  /** E pressed at a shrine pad (door / altar / wisp), or the wisp was clicked. */
+  onPad: ((id: PadId) => void) | null = null;
+  /** The shrine (the stump's door, altar and the wisp's lantern post) exists only in the app (TreeView turns it on), not on the demo page. */
+  shrineOn = false;
+  shrine: Shrine | null = null;
+  private shrineGroup = new THREE.Group();
+  private hudPad: Pad | null = null;
+  /** The search wisp: perched over the shrine's lantern post or following the animal (key via the HUD / shrine panel), remembered. */
+  wispMode: WispMode;
+  private wispPos = { x: 0, y: 0, z: 0 };
+  /** A leaf the wisp was asked to light the way to (it hovers beside it with a beam of light until the animal has stood there a while). */
+  private wispGuide: { leafId: string; p: { x: number; y: number; z: number } } | null = null;
+  private guideNear = 0;
+  private wispBeam: THREE.Mesh;
+  private hoverWisp = false;
 
   private worldGroup = new THREE.Group();
   private barkGroup = new THREE.Group();
@@ -202,7 +229,6 @@ export class TreeScene {
   /** Guided movement: the heading the chase / level camera follows (eased, see `travel`). */
   private camFwd = new THREE.Vector3(1, 0, 0);
   private wisp: THREE.Sprite;
-  private wispTarget = new THREE.Vector3();
   private sky: ReturnType<typeof buildSky>;
   private sunLight: THREE.DirectionalLight;
   /** Sun shadow map that follows the animal + the blob fallback under it (src/tree/shadows.ts). */
@@ -226,6 +252,7 @@ export class TreeScene {
   private hudNear: Leaf | null = null;
   private hudClimb: string | null = null;
   private hudClimbAuto = false;
+  private hudClimbDown = false;
   private foliageAcc = 0;
   private raycaster = new THREE.Raycaster();
   private hoverMarker: THREE.Sprite;
@@ -280,7 +307,7 @@ export class TreeScene {
     this.shadows = new SunShadows(this.renderer, this.sunLight, SUN_DIR, loadShadowQuality());
     this.sky = buildSky();
     this.scene.add(this.sunLight, this.sunLight.target, this.contact.mesh, this.sky.dome, this.sky.sun, this.worldGroup, this.creatureGroup);
-    this.worldGroup.add(this.envGroup, this.barkGroup, this.leafGroup, this.foliage.group, this.labels.group);
+    this.worldGroup.add(this.envGroup, this.barkGroup, this.leafGroup, this.foliage.group, this.labels.group, this.shrineGroup);
     this.creature = spawn(world, ANIMALS[animalIndex], startBranch, startS, this.moveMode);
     const cv = document.createElement("canvas");
     cv.width = cv.height = 64;
@@ -294,7 +321,34 @@ export class TreeScene {
     const mat = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false });
     this.wisp = new THREE.Sprite(mat);
     this.wisp.scale.set(34, 34, 1);
+    this.wisp.renderOrder = 28;
     this.scene.add(this.wisp);
+    // the beam of light that marks a leaf the wisp was sent to (a soft vertical gradient, turned towards the camera every frame)
+    const bc = document.createElement("canvas");
+    bc.width = 16;
+    bc.height = 128;
+    const bx = bc.getContext("2d")!;
+    const bg = bx.createLinearGradient(0, 0, 0, 128);
+    bg.addColorStop(0, "rgba(255,240,190,0)");
+    bg.addColorStop(0.75, "rgba(255,236,170,0.55)");
+    bg.addColorStop(1, "rgba(255,250,220,0.95)");
+    bx.fillStyle = bg;
+    bx.fillRect(0, 0, 16, 128);
+    const bh = bx.createLinearGradient(0, 0, 16, 0);
+    bh.addColorStop(0, "rgba(0,0,0,1)");
+    bh.addColorStop(0.5, "rgba(0,0,0,0)");
+    bh.addColorStop(1, "rgba(0,0,0,1)");
+    bx.globalCompositeOperation = "destination-out";
+    bx.fillStyle = bh;
+    bx.fillRect(0, 0, 16, 128);
+    this.wispBeam = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(bc), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }),
+    );
+    this.wispBeam.visible = false;
+    this.wispBeam.renderOrder = 27;
+    this.scene.add(this.wispBeam);
+    this.wispMode = parseWispMode(load("biblio.v1.treeWisp", ["perch", "follow"] as const, "perch"));
     this.previewDots = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true, opacity: 0.9, fog: false }), 80);
     this.previewDots.count = 0;
     this.previewDots.frustumCulled = false;
@@ -550,12 +604,128 @@ export class TreeScene {
     this.creature = spawn(this.world, this.creature.animal, branchId, s, this.moveMode);
   }
 
+  /** The stump: the one non-silk branch without a parent (forest and hub layouts alike). */
+  private stumpId(): string | null {
+    for (const b of this.world.branches.values()) if (b.parent === null && !b.silk) return b.id;
+    return null;
+  }
+
+  private refreshShrine(): void {
+    const id = this.shrineOn ? this.stumpId() : null;
+    this.shrine = id ? shrineOf(this.world, id) : null;
+  }
+
+  /** Turn the shrine (door, altar, lantern post with the wisp) on or off: the app turns it on, the demo page never does. */
+  setShrine(on: boolean): void {
+    this.shrineOn = on;
+    this.refreshShrine();
+    this.rebuildShrine();
+  }
+
+  private rebuildShrine(): void {
+    disposeGroup(this.shrineGroup);
+    if (this.shrine) {
+      this.shrineGroup.add(buildShrine(this.shrine));
+      tagShadows(this.shrineGroup, true, true);
+    }
+  }
+
+  /** Put the animal at the shrine's door (when the app opens, and when you come back out of the library). */
+  moveToShrine(): void {
+    if (!this.shrine) return;
+    const a = arrival(this.shrine);
+    const { gripOn, autoAlign } = this.creature;
+    this.creature = spawn(this.world, this.creature.animal, a.branch, a.s, this.moveMode, a.th);
+    this.creature.gripOn = gripOn;
+    this.creature.autoAlign = autoAlign;
+  }
+
+  /** Put the animal at a pad (the door / the altar: on the stump's foot at that side; the wisp: at the foot facing the lantern post). For tests and tools. */
+  moveToPad(id: PadId): void {
+    const sh = this.shrine;
+    if (!sh) return;
+    const b = this.world.branches.get(sh.stump);
+    if (!b) return;
+    const th = id === "door" ? sh.doorTh : id === "altar" ? sh.altarTh : thetaOf(frameAt(b, sh.footS), { x: Math.cos(sh.wispAz), y: 0, z: Math.sin(sh.wispAz) });
+    const { gripOn, autoAlign } = this.creature;
+    this.creature = spawn(this.world, this.creature.animal, sh.stump, sh.footS, this.moveMode, th);
+    this.creature.gripOn = gripOn;
+    this.creature.autoAlign = autoAlign;
+  }
+
+  /** Where the wisp is right now (world coordinates). */
+  get wispPoint(): { x: number; y: number; z: number } {
+    return { ...this.wispPos };
+  }
+
+  /** The pad the animal's head is at right now (null while airborne / flying). */
+  nearestPad(): { pad: Pad; k: number } | null {
+    const c = this.creature;
+    if (!this.shrine || c.air) return null;
+    const hb = this.world.branches.get(c.head.b);
+    if (!hb) return null;
+    const hp = c.flight ? c.flight.p : surfacePoint(hb, c.head.s, c.head.th).p;
+    const pad = padNear(this.shrine, hp);
+    if (!pad) return null;
+    return { pad, k: Math.hypot(hp.x - pad.pos.x, hp.y - pad.pos.y, hp.z - pad.pos.z) / pad.radius };
+  }
+
+  // ---- the wisp ---------------------------------------------------------------------
+
+  setWispMode(m: WispMode): void {
+    this.wispMode = m;
+    save("biblio.v1.treeWisp", m);
+    this.wispGuide = null; // a mode switch calls it back
+  }
+
+  toggleWispMode(): void {
+    this.setWispMode(this.wispMode === "perch" ? "follow" : "perch");
+  }
+
+  /** Where a note is in this world: its leaf (or the base of its folder's branch), as a surface point; null when it is not here. */
+  locate(noteId: string): { b: string; s: number; th: number; leafId?: string; p: { x: number; y: number; z: number } } | null {
+    const leaf = this.leaves.find((l) => l.id === noteId);
+    if (leaf) {
+      const b = this.world.branches.get(leaf.branchId);
+      if (!b) return null;
+      return { b: leaf.branchId, s: leaf.s, th: leaf.th, leafId: leaf.id, p: surfacePoint(b, leaf.s, leaf.th, 6).p };
+    }
+    const b = this.world.branches.get(noteId);
+    if (b && !b.silk && !b.root) {
+      const s = Math.min(b.total * 0.5, 40 + b.r);
+      return { b: b.id, s, th: 0, p: surfacePoint(b, s, 0, 6).p };
+    }
+    return null;
+  }
+
+  /** Walk to a note by itself (leaf: stops beside it; the reader is not opened). False when the note is not in the tree. */
+  walkToNote(noteId: string): boolean {
+    const at = this.locate(noteId);
+    if (!at) return false;
+    this.startPilot({ b: at.b, s: at.s, th: at.th, leafId: at.leafId });
+    return true;
+  }
+
+  /** The wisp flies to the note and hovers beside it with a beam of light. False when the note is not in the tree. */
+  lightNote(noteId: string): boolean {
+    const at = this.locate(noteId);
+    if (!at) return false;
+    this.wispGuide = { leafId: noteId, p: at.p };
+    this.guideNear = 0;
+    return true;
+  }
+
+  get wispGuiding(): boolean {
+    return this.wispGuide !== null;
+  }
+
   /** Replace the world (and its leaves), e.g. after the vault changed. */
   setWorld(world: World, leaves: Leaf[], startBranch: string, startS: number, titles?: ReadonlyMap<string, string>): void {
     this.world = world;
     this.leaves = leaves;
     this.leafIdx = buildLeafIndex(world, leaves, VOX * 3);
     if (titles) this.titles = titles;
+    this.refreshShrine();
     applySilks(world); // threads the spiders spun earlier this session survive a rebuilt world
     const { gripOn, autoAlign } = this.creature;
     this.creature = spawn(world, this.creature.animal, startBranch, startS, this.moveMode);
@@ -579,6 +749,7 @@ export class TreeScene {
     this.leaves = leaves;
     this.leafIdx = buildLeafIndex(world, leaves, VOX * 3);
     if (titles) this.titles = titles;
+    this.refreshShrine();
     c.head.s = Math.min(c.head.s, Math.max(0, b.total - 4));
     this.queueBuild();
   }
@@ -650,6 +821,11 @@ export class TreeScene {
     this.previewDots.dispose();
     this.reticle.material.map?.dispose();
     this.reticle.material.dispose();
+    this.wisp.material.map?.dispose();
+    this.wisp.material.dispose();
+    this.wispBeam.geometry.dispose();
+    (this.wispBeam.material as THREE.MeshBasicMaterial).map?.dispose();
+    (this.wispBeam.material as THREE.Material).dispose();
     this.foliage.dispose();
     this.shadows.dispose();
     this.contact.dispose();
@@ -681,6 +857,15 @@ export class TreeScene {
     const h = el.clientHeight || 1;
     this.raycaster.setFromCamera(new THREE.Vector2((x / w) * 2 - 1, -(y / h) * 2 + 1), this.camera);
     return pickAt(this.world, this.leafIdx, toV(this.raycaster.ray.origin), toV(this.raycaster.ray.direction));
+  }
+
+  /** Is the pixel on the wisp's glow? */
+  overWisp(x: number, y: number): boolean {
+    const w = this.screenOf(this.wispPos);
+    const cs = Math.max(0.4, this.camScale);
+    const d = this.camera.position.distanceTo(this.wisp.position);
+    const r = Math.max(16, (34 * cs * 0.6 * (this.renderer.domElement.clientHeight || 1)) / (2 * Math.tan((this.camera.fov * Math.PI) / 360) * Math.max(1, d)));
+    return wispHit(x, y, w, r);
   }
 
   /** A world point -> pixel position inside the view (null when it is behind the camera). For the tests and the HUD. */
@@ -725,6 +910,11 @@ export class TreeScene {
     const now = performance.now();
     if (now - this.hoverAt < 100) return;
     this.hoverAt = now;
+    this.hoverWisp = this.overWisp(x, y);
+    if (this.hoverWisp) {
+      this.hover = null;
+      return;
+    }
     const hit = this.pickAtPixel(x, y);
     if (!hit) {
       this.hover = null;
@@ -744,6 +934,10 @@ export class TreeScene {
     }
     if (!this.enabled || e.button !== 0 || p.moved) return;
     const { x, y } = this.local(e);
+    if (this.overWisp(x, y)) {
+      this.onPad?.("wisp"); // a click on the wisp is the search
+      return;
+    }
     const hit = this.pickAtPixel(x, y);
     if (!hit) {
       this.cancelPilot();
@@ -870,7 +1064,10 @@ export class TreeScene {
     if (k === "-" || k === "_") this.zoom(1.2);
     if (k === "e") {
       const near = this.nearestLeaf();
-      if (near) this.onInteract?.(near);
+      const pad = this.nearestPad();
+      // standing right at a pad means the pad; otherwise a leaf within reach wins, then any pad in range
+      if (pad && (pad.k <= 0.6 || !near)) this.onPad?.(pad.pad.id);
+      else if (near) this.onInteract?.(near);
     }
   }
 
@@ -901,6 +1098,7 @@ export class TreeScene {
     tagShadows(this.barkGroup, true, true);
     this.rebuildLeaves();
     this.rebuildFoliage();
+    this.rebuildShrine();
     this.labels.rebuild(this.world, this.titles, this.labelMode);
   }
 
@@ -986,9 +1184,10 @@ export class TreeScene {
     const head = this.creature.flight ? this.creature.flight.p : bodyPoint(this.creature, 0).p;
     const headV = T3(head);
     const cs = Math.max(0.4, this.camScale);
-    this.wispTarget.set(headV.x + (-50 + Math.cos(t * 1.7) * 12) * cs, headV.y + (100 + Math.sin(t * 2.3) * 10) * cs, headV.z + 60 * cs);
-    this.wisp.position.lerp(this.wispTarget, Math.min(1, dt * 4));
+    this.wispPos = wispStep(this.wispPos, wispTarget({ mode: this.wispMode, perch: this.shrine?.perch ?? null, head, camScale: this.camScale, t, guide: this.wispGuide?.p ?? null }), dt);
+    this.wisp.position.set(this.wispPos.x, this.wispPos.y, this.wispPos.z);
     this.wisp.scale.set(34 * cs, 34 * cs, 1);
+    this.updateGuide(dt);
     this.labels.update(this.camera);
     // the canopy fade is eased over ~0.2 s anyway: 30 updates a second look the same and cost half
     this.foliageAcc += dt;
@@ -1014,16 +1213,36 @@ export class TreeScene {
       this.hudNear = this.nearestLeaf();
       const ct = climbTarget(this.world, c);
       this.hudClimb = ct?.id ?? null;
-      this.hudClimbAuto = !!ct && !ct.root && !ct.silk;
+      this.hudClimbDown = !!ct && ct.root === true && ct.parent === c.head.b; // a ground root at the stump's foot: entered walking DOWN (the star junction)
+      this.hudClimbAuto = !!ct && !ct.silk && (!ct.root || this.hudClimbDown);
+      this.hudPad = this.nearestPad()?.pad ?? null;
+      if (this.hoverWisp && !this.overWisp(this.pointer.x, this.pointer.y)) this.hoverWisp = false; // the wisp flew away from under a pointer that did not move
     }
     this.onHud?.({
       animal: c.animal.name, animalId: c.animal.id, flying: !!c.flight, aiming: !!c.aim, dangling: !!c.silk, canSilk: !!c.animal.silk, autoAlign: c.autoAlign, moveMode: c.moveMode, labels: this.labelMode, foliage: this.foliageOn, foliageDensity: this.foliageDensity, shadows: this.shadows.quality, branch: c.head.b, th: c.head.th, phi: c.phi, grip: c.grip, gripOn: c.gripOn,
       airborne: !!c.air, reaching: !!c.reach, chase: this.chase, camera: this.camMode, look: this.look,
-      nearLeaf: this.hudNear, climb: this.hudClimb, climbAuto: this.hudClimbAuto,
+      nearLeaf: this.hudNear, climb: this.hudClimb, climbAuto: this.hudClimbAuto, climbDown: this.hudClimbDown,
       perfProfile: this.perfProfile, perf: this.perfOverlay ? this.stats : null,
       walking: !!this.pilot,
+      pad: this.hudPad ? { id: this.hudPad.id, label: this.hudPad.label } : null,
+      wispMode: this.wispMode, wispGuiding: this.wispGuide !== null, hoverWisp: this.hoverWisp,
       hover: this.hover && this.hover.title ? { title: this.hover.title, leaf: this.hover.pick.kind === "leaf", x: this.hover.x, y: this.hover.y } : null,
     });
+  }
+
+  /** The beam over the leaf the wisp was sent to, and letting it go once the animal has stood there a while. */
+  private updateGuide(dt: number): void {
+    const g = this.wispGuide;
+    this.wispBeam.visible = !!g;
+    if (!g) return;
+    const cs = Math.max(0.4, this.camScale);
+    this.wispBeam.position.set(g.p.x, g.p.y + 330 * cs, g.p.z);
+    this.wispBeam.scale.set(26 * cs, 660 * cs, 1);
+    this.wispBeam.rotation.y = Math.atan2(this.camera.position.x - g.p.x, this.camera.position.z - g.p.z);
+    const h = this.creature.flight?.p ?? bodyPoint(this.creature, 0).p;
+    if (Math.hypot(h.x - g.p.x, h.y - g.p.y, h.z - g.p.z) < 130) this.guideNear += dt;
+    else this.guideNear = Math.max(0, this.guideNear - dt);
+    if (this.guideNear > 6) this.wispGuide = null; // you found it: the wisp goes home (or back to following)
   }
 
   /** The ring under the pointer (what a click would walk to) and the ring on the goal of a walk, kept a readable size on screen. */

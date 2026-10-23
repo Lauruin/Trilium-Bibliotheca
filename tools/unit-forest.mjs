@@ -184,17 +184,17 @@ export default async ({ bundle, assert }) => {
         assert.ok(r.minGrip > 0.9, `${animal}: walking a root's top does not drain grip (${r.minGrip.toFixed(2)})`);
       }
     }
-    // from the stump into another root (Shift at its base), then up that trunk
+    // from the stump into another root (walking DOWN into its base zone: the star junction, no Shift), then up that trunk
     const up = (tid, animal) => {
       const rb = w.branches.get("root:" + tid);
       const F0 = rb.pts.at(-1);
       const c = S.spawn(w, A(animal), "root", rb.attachS + 2);
       c.head.th = Math.atan2(F0.x, F0.z); // the side of the stump the root leaves from
       c.phi = Math.PI;
-      assert.equal(S.climbTarget(w, { ...c, climbHeld: true })?.id, "root:" + tid, `${animal}: Shift at the stump's base offers the root of ${tid}`);
+      assert.equal(S.climbTarget(w, c)?.id, "root:" + tid, `${animal}: the stump's base offers the root of ${tid}`);
       const seen = [];
       for (let i = 0; i < 60 * 40 && c.head.b !== tid; i++) {
-        S.step(w, c, { ...S.NO_INPUT, forward: true, climb: true }, 1 / 60);
+        S.step(w, c, { ...S.NO_INPUT, forward: true }, 1 / 60);
         if (seen[seen.length - 1] !== c.head.b) seen.push(c.head.b);
       }
       return { c, seen };
