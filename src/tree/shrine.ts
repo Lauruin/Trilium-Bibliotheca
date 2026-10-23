@@ -15,6 +15,10 @@
 import { frameAt, radiusAt, surfacePoint, thetaOf, type V3, type World } from "./world3";
 
 /** The foot's pads (door, altar, wisp post) and one pad per crown limb of the world tree: `place:<id>`. */
+/** The place ids of the two limbs that carry the altar (the porch) and the wisp's perch. */
+export const PORCH = "porch";
+export const WISP = "wisp";
+
 export type PadId = "door" | "altar" | "wisp" | `place:${string}`;
 
 export interface Pad {
@@ -52,9 +56,16 @@ export interface Shrine {
   doorTh: number;
   altarTh: number;
   footS: number;
-  /** The lantern post: base on the ground, top, and where the wisp rests above it. */
-  post: { base: V3; top: V3 };
+  /** The lantern post at the foot (only when the wisp has no branch of its own: hub mode, or a layout without places): base on the ground and top. */
+  post: { base: V3; top: V3 } | null;
+  /** Where the wisp rests: above the tip of its own branch (`place:wisp`) or above the post. */
   perch: V3;
+  /** The porch (`place:porch`): the nest at its tip (where you spawn and the altar is), and the branches that carry the porch and the wisp's perch. */
+  nest: V3 | null;
+  porch: string | null;
+  wispBranch: string | null;
+  /** Where the animal starts / arrives (see `arrival`). */
+  start: { branch: string; s: number; th: number };
   pads: Pad[];
   stones: Stone[];
 }
@@ -136,14 +147,28 @@ export function shrineOf(world: World, stumpId: string, titles?: ReadonlyMap<str
   const top: V3 = { x: base.x, y: groundY + 92 * kp, z: base.z };
   const perch: V3 = { x: base.x, y: top.y + 26 * kp, z: base.z };
 
+  // the porch (the nest where you start, with the altar) and the wisp's branch, when the layout has them; else the old foot versions
+  const porchB = [...world.branches.values()].find((b) => b.place === PORCH && !b.silk) ?? null;
+  const wispB = [...world.branches.values()].find((b) => b.place === WISP && !b.silk) ?? null;
+  const tipOf = (b: { total: number } & Parameters<typeof frameAt>[0], at: number): { s: number; th: number; p: V3 } => {
+    const s = b.total * at;
+    const th = topTheta(b, s);
+    return { s, th, p: surfacePoint(b as never, s, th, 0).p };
+  };
+  const porchTip = porchB ? tipOf(porchB, 0.84) : null;
+  const wispTip = wispB ? tipOf(wispB, 0.95) : null;
+  const nest: V3 | null = porchTip ? { x: porchTip.p.x, y: porchTip.p.y + 4, z: porchTip.p.z } : null;
+  const perch2: V3 = wispTip ? { x: wispTip.p.x, y: wispTip.p.y + 50 * kp, z: wispTip.p.z } : perch;
+  const start = porchB && porchTip ? { branch: porchB.id, s: porchTip.s, th: porchTip.th } : { branch: stumpId, s: footS, th: doorTh };
+
   const pads: Pad[] = [
     { id: "door", label: "walk through the door into the library", pos: doorPos, radius: DOOR_RADIUS * kp },
-    { id: "altar", label: "open the shrine", pos: altarPos, radius: ALTAR_RADIUS * kp },
-    { id: "wisp", label: "ask the wisp (search)", pos: perch, radius: WISP_RADIUS * kp },
+    { id: "altar", label: "open the shrine", pos: nest ?? altarPos, radius: nest ? ALTAR_RADIUS * 1.5 : ALTAR_RADIUS * kp },
+    { id: "wisp", label: "ask the wisp (search)", pos: perch2, radius: wispTip ? WISP_RADIUS * 1.2 : WISP_RADIUS * kp },
   ];
-  // the crown: one pad at the tip of each place limb (a game mode / tool), reached by climbing the world tree
+  // every other place limb (a point of interest, a game mode, a tool) has a pad at its tip, reached by climbing the world tree
   for (const b of world.branches.values()) {
-    if (!b.place || b.silk) continue;
+    if (!b.place || b.silk || b === porchB || b === wispB) continue;
     const th = topTheta(b, b.total * 0.9);
     pads.push({ id: `place:${b.place}`, label: titles?.get(b.id) ?? b.place, pos: surfacePoint(b, b.total * 0.9, th, 8).p, radius: PLACE_RADIUS });
   }
@@ -161,7 +186,10 @@ export function shrineOf(world: World, stumpId: string, titles?: ReadonlyMap<str
     stones.push({ x: centre.x + Math.cos(az) * rr, z: centre.z + Math.sin(az) * rr, w: (9 + j * 8) * kp, h: (14 + (1 - j) * 18) * kp, rot: az + j });
   }
 
-  return { k, stump: stumpId, centre, groundY, stumpR: R, doorAz, wispAz, altarAz, doorTh, altarTh, footS, post: { base, top }, perch, pads, stones };
+  return {
+    k, stump: stumpId, centre, groundY, stumpR: R, doorAz, wispAz, altarAz, doorTh, altarTh, footS,
+    post: wispB ? null : { base, top }, perch: perch2, nest, porch: porchB?.id ?? null, wispBranch: wispB?.id ?? null, start, pads, stones,
+  };
 }
 
 /** The angle round a branch at arc length s where its surface faces most nearly up in the world. */
@@ -185,7 +213,24 @@ export function padNear(shrine: Shrine | null, p: V3): Pad | null {
   return best;
 }
 
-/** Where to put the animal when it arrives at the shrine (a boot, or coming back out of the library): the stump's foot at the door. */
+/** Where to put the animal when it arrives (a boot, or coming back out of the library): on the porch's nest, else at the door at the trunk's foot. */
 export function arrival(shrine: Shrine): { branch: string; s: number; th: number } {
-  return { branch: shrine.stump, s: shrine.footS, th: shrine.doorTh };
+  return { ...shrine.start };
+}
+
+/** Where an animal stands to use a pad (tests and tools): the door at the foot, the altar in the nest, the wisp at its branch's tip. */
+export function padStand(world: World, shrine: Shrine, id: PadId): { branch: string; s: number; th: number } {
+  if (id === "door") return { branch: shrine.stump, s: shrine.footS, th: shrine.doorTh };
+  if (id === "altar") return shrine.porch ? { ...shrine.start } : { branch: shrine.stump, s: shrine.footS, th: shrine.altarTh };
+  if (id === "wisp" && shrine.wispBranch) {
+    const b = world.branches.get(shrine.wispBranch);
+    if (b) return { branch: b.id, s: b.total * 0.95, th: topTheta(b, b.total * 0.95) };
+  }
+  if (id === "wisp") {
+    const b = world.branches.get(shrine.stump)!;
+    return { branch: shrine.stump, s: shrine.footS, th: thetaOf(frameAt(b, shrine.footS), dir(shrine.wispAz)) };
+  }
+  const place = id.slice(6);
+  const b = [...world.branches.values()].find((x) => x.place === place);
+  return b ? { branch: b.id, s: b.total * 0.9, th: topTheta(b, b.total * 0.9) } : { ...shrine.start };
 }

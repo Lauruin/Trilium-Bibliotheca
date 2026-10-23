@@ -53,7 +53,9 @@ export const LABELS = {
   yggdrasil: "biblio_yggdrasil",
   /** The note inside it that holds the app's save (settings, unlocks, progress; JSON). */
   save: "biblio_save",
-  /** Learning modes (quizzes, the mite, the gardener) may only use notes that carry this label, own or INHERITED (put it on a folder to opt a whole branch in). Absent = never a target. */
+  /** A note inside the Yggdrasil folder that holds the settings of one PLACE (value = the place id; JSON, never a secret). */
+  place: "biblio_place",
+  /** Learning modes (quizzes, the leaf view, the gardener) may only use notes that carry this label, own or INHERITED (put it on a folder to opt a whole branch in). Absent = never a target. */
   learn: "biblio_learn",
   /** Never send this note (or, inherited, a whole folder) to an AI provider, even when it also carries `biblio_learn`. */
   noai: "biblio_noai",

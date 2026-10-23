@@ -1,22 +1,35 @@
 /**
  * tree/labels.ts — names for the branches (the folders), as sprites in the 3D scene.
  *
- *   signs   — a wooden board at the base of each BIG branch (readable from a distance, hidden behind bark)
+ *   signs   — a wooden sign standing ON TOP of each big branch (fixed in the world, turning to face you), and the name carved into the wood of
+ *             the smaller ones (a decal lying along the branch): nothing floats, nothing is a screen-sized billboard
  *   bubbles — a speech bubble floating over EVERY branch, drawn over everything (a "map" of the tree)
  *   off     — nothing
  *
- * Sprites keep a roughly constant on-screen size: they grow with the distance to the camera
- * (clamped), so far branches stay readable and near ones don't fill the screen.
+ * Bubble sprites keep a roughly constant on-screen size: they grow with the distance to the camera
+ * (clamped), so far branches stay readable and near ones don't fill the screen. Signs and wood names have a fixed size in the world.
  */
 
 import * as THREE from "three";
-import { frameAt, radiusAt, type World } from "./world3";
+import { frameAt, normalAt, radiusAt, type World } from "./world3";
 
 export type LabelMode = "signs" | "bubbles" | "off";
 export const LABEL_MODES: readonly LabelMode[] = ["signs", "bubbles", "off"];
 
 /** Branches thick enough (start radius) to get a sign at their base. */
 const SIGN_MIN_R = 13;
+
+/** A sign standing on a big branch: a quad (anchored at its foot) that turns about the world's y axis towards the camera. */
+interface SignEntry {
+  mesh: THREE.Mesh;
+  /** A standing sign turns to the camera; a name on the wood stays where it is. */
+  stand: boolean;
+}
+
+/** Branches thinner than this get no name at all (the text would be a few pixels). */
+const WOOD_MIN_R = 3.5;
+/** Branches shorter than this are not worth a name. */
+const LABEL_MIN_LEN = 90;
 
 interface Entry {
   sprite: THREE.Sprite;
@@ -88,17 +101,91 @@ function labelTexture(text: string, mode: "signs" | "bubbles"): THREE.CanvasText
   return tex;
 }
 
+/** The name written on the wood: light letters with a dark edge on a transparent canvas. */
+function woodTexture(text: string): THREE.CanvasTexture {
+  const cv = document.createElement("canvas");
+  cv.width = 256;
+  cv.height = 48;
+  const ctx = cv.getContext("2d")!;
+  const fit = fitText(ctx, text, 240, 34);
+  ctx.font = `bold ${fit.size}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = "rgba(40,24,10,0.85)";
+  ctx.strokeText(fit.text, 128, 25);
+  ctx.fillStyle = "#f4e8c8";
+  ctx.fillText(fit.text, 128, 25);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export class BranchLabels {
   readonly group = new THREE.Group();
   private entries: Entry[] = [];
+  private signs: SignEntry[] = [];
+  private quad = new THREE.PlaneGeometry(1, 1);
 
   clear(): void {
     for (const e of this.entries) {
       e.sprite.material.map?.dispose();
       e.sprite.material.dispose();
     }
+    for (const e of this.signs) {
+      (e.mesh.material as THREE.MeshBasicMaterial).map?.dispose();
+      (e.mesh.material as THREE.Material).dispose();
+    }
     this.group.clear();
     this.entries = [];
+    this.signs = [];
+  }
+
+  /** A sign: a board on a post standing on top of a big branch (the texture's post is part of the quad, whose foot is its pivot). */
+  private addSign(b: import("./world3").Branch, title: string): void {
+    const s = Math.min(b.total * 0.1, 160);
+    const f = frameAt(b, s);
+    // the topmost point of the branch's cross-section
+    const th = Math.atan2(f.b.y, f.u.y);
+    const n = normalAt(f, Math.hypot(f.u.y, f.b.y) > 0.3 ? th : 0);
+    const r = radiusAt(b, s);
+    const w = Math.min(300, Math.max(86, r * 5.2));
+    const h = (w * 80) / 256;
+    const geo = this.quad.clone();
+    geo.translate(0, 0.5, 0); // the foot is the pivot
+    const mat = new THREE.MeshBasicMaterial({ map: labelTexture(title, "signs"), transparent: true, alphaTest: 0.35, side: THREE.DoubleSide, depthWrite: true });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.scale.set(w, h, 1);
+    mesh.position.set(f.p.x + n.x * (r - 2), f.p.y + n.y * (r - 2), f.p.z + n.z * (r - 2));
+    mesh.renderOrder = 5;
+    this.group.add(mesh);
+    this.signs.push({ mesh, stand: true });
+  }
+
+  /** The name written along a smaller branch: a quad lying on its top (or its upper side) with the text on it. */
+  private addWood(b: import("./world3").Branch, title: string): void {
+    const len = Math.min(b.total * 0.6, 40 + b.r * 22);
+    const s = Math.max(len / 2 + 4, Math.min(b.total * 0.5, b.total - len / 2 - 4));
+    const f = frameAt(b, s);
+    const up = Math.hypot(f.u.y, f.b.y);
+    const th = up > 0.35 ? Math.atan2(f.b.y, f.u.y) : 0;
+    const n = normalAt(f, th);
+    const r = radiusAt(b, s);
+    const hgt = Math.min(r * 1.7, len / 5, 26);
+    const geo = new THREE.PlaneGeometry(len, hgt);
+    // the quad's x runs along the branch, its normal is the surface normal; its y is n x t (so the text reads from the outside, base-to-tip)
+    const t = new THREE.Vector3(f.t.x, f.t.y, f.t.z);
+    const nn = new THREE.Vector3(n.x, n.y, n.z);
+    const yAxis = new THREE.Vector3().crossVectors(nn, t).normalize();
+    const m4 = new THREE.Matrix4().makeBasis(t, yAxis, nn);
+    const mat = new THREE.MeshBasicMaterial({ map: woodTexture(title), transparent: true, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.quaternion.setFromRotationMatrix(m4);
+    mesh.position.set(f.p.x + n.x * (r + 0.6), f.p.y + n.y * (r + 0.6), f.p.z + n.z * (r + 0.6));
+    mesh.renderOrder = 4;
+    this.group.add(mesh);
+    this.signs.push({ mesh, stand: false });
   }
 
   rebuild(world: World, titles: ReadonlyMap<string, string>, mode: LabelMode): void {
@@ -107,8 +194,13 @@ export class BranchLabels {
     for (const b of world.branches.values()) {
       const title = titles.get(b.id);
       if (!title) continue;
-      if (mode === "signs" && b.r < SIGN_MIN_R) continue;
-      const sign = mode === "signs";
+      if (mode === "signs") {
+        if (b.silk || b.total < LABEL_MIN_LEN) continue;
+        if (b.r >= SIGN_MIN_R) this.addSign(b, title);
+        else if (b.r >= WOOD_MIN_R) this.addWood(b, title);
+        continue;
+      }
+      const sign = false;
       const s = sign ? Math.min(b.total * 0.08, 140) : b.total * 0.5;
       const f = frameAt(b, s);
       const lift = radiusAt(b, s) + (sign ? 24 : 34);
@@ -125,8 +217,11 @@ export class BranchLabels {
     }
   }
 
-  /** Keep the on-screen size roughly constant (call every frame). */
+  /** Keep the bubbles' on-screen size roughly constant and turn the signs towards the camera (call every frame). */
   update(camera: THREE.Camera): void {
+    for (const e of this.signs) {
+      if (e.stand) e.mesh.rotation.set(0, Math.atan2(camera.position.x - e.mesh.position.x, camera.position.z - e.mesh.position.z), 0);
+    }
     for (const e of this.entries) {
       const d = e.at.distanceTo(camera.position);
       const f = Math.min(e.maxScale, Math.max(1, d / e.k));

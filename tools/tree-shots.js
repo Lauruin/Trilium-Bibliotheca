@@ -64,7 +64,7 @@ if (run("leaves")) {
 }
 if (run("squirrel")) {
   await S("s.setLook('lowpoly'); s.setCamera('level'); s.zoomMul = 1.6; s.respawn('trunk', 500)");
-  await page.keyboard.press("3");
+  await page.keyboard.press("4");
   await page.waitForTimeout(400);
   await page.keyboard.press(" ");
   await page.keyboard.down("w");
@@ -76,7 +76,7 @@ if (run("squirrel")) {
 if (run("snake")) {
   await S("s.setLook('lowpoly'); s.setCamera('chase'); s.zoomMul = 1.8; s.respawn('trunk', 980)");
   // category 1 = ant, spider, jumping spider, snake: press "1" until the snake is the animal (4 presses from a lizard / flier)
-  for (let guard = 0; guard < 8 && (await S("return s.creature.animal.id")) !== "snake"; guard++) await page.keyboard.press("1");
+  for (let guard = 0; guard < 8 && (await S("return s.creature.animal.id")) !== "snake"; guard++) await page.keyboard.press("2");
   await page.waitForTimeout(500);
   await page.keyboard.down(" ");
   await page.keyboard.down("a");
@@ -169,7 +169,7 @@ if (run("animals")) {
   await page.goto(url);
   await page.waitForFunction(() => window.__treeScene);
   await page.waitForTimeout(1000);
-  const order = [["1", 1, "ant"], ["1", 2, "spider"], ["1", 3, "jumper"], ["1", 4, "snake"], ["2", 1, "lizard"], ["2", 2, "cat"], ["3", 1, "squirrel"], ["3", 2, "bee"], ["3", 3, "dragonfly"], ["3", 4, "bluejay"]];
+  const order = [["1", 1, "ant"], ["2", 1, "beetle"], ["2", 2, "spider"], ["2", 3, "jumper"], ["2", 4, "snake"], ["2", 5, "constrictor"], ["3", 1, "lizard"], ["3", 2, "cat"], ["4", 1, "squirrel"], ["4", 2, "bee"], ["4", 3, "dragonfly"], ["4", 4, "bluejay"], ["4", 5, "eagle"]];
   for (const look of ["voxel", "lowpoly"]) {
     await S("s.setLook(a[0]); s.setCamera('level'); s.zoomMul = 1.0", look);
     for (const [key, , id] of order) {

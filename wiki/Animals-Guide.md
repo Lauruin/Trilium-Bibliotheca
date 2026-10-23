@@ -1,6 +1,6 @@
 # Animals Guide
 
-You climb the [tree](Tree-View-Yggdrasil.md) as one of **ten animals**, grouped into three categories on the number keys. An animal is *data* (an `Animal` spec in `src/tree/sim3.ts`), not code: a steered head, a body that trails it along its recorded path, procedurally placed feet and a few ability flags.
+You climb the [tree](Tree-View-Yggdrasil.md) as one of **thirteen animals**, grouped into four categories on the number keys. An animal is *data* (an `Animal` spec in `src/tree/sim3.ts`), not code: a steered head, a body that trails it along its recorded path, procedurally placed feet and a few ability flags.
 You start as the lizard each time you open the tree; the choice is not remembered between visits.
 How each animal **looks** is data too (`src/tree/animalmodels.ts`, drawn by `src/tree/creatures.ts`); see [What they look like](#what-they-look-like).
 
@@ -8,30 +8,33 @@ How each animal **looks** is data too (`src/tree/animalmodels.ts`, drawn by `src
 
 | Key | Category | Cycle order (press the key again for the next one) |
 |---|---|---|
-| `1` | **Crawlers** | ant, spider, jumping spider, snake |
-| `2` | **Walkers** | lizard, cat |
-| `3` | **Fliers** | flying squirrel, bee, dragonfly, blue jay |
+| `1` | **Reader** | ant (alone: the leaf-view animal is one key away) |
+| `2` | **Crawlers** | beetle, spider, jumping spider, snake, constrictor |
+| `3` | **Walkers** | lizard, cat |
+| `4` | **Fliers** | flying squirrel, bee, dragonfly, blue jay, eagle |
 
 Pressing a category key while you are an animal **outside** that category picks its first animal; pressing it while you are **in** it picks the next, wrapping around (`animalForKey` in `sim3.ts`). Any other number does nothing. The on-screen animal buttons do the same job by mouse.
 Switching respawns you on the same branch at the same spot (on top), and keeps your grip, auto-align and movement-mode settings. The "fliers" category includes the **flying squirrel**, which glides rather than flies freely. **Crawlers cannot jump** (ant, spider, snake) except the **jumping spider**.
 
 ## The ten at a glance
 
-Sizes and speeds are in world units after the per-animal scale in `ANIMALS` (the lizard x1.7, snake x1.5, ant x0.55, cat x1.9, squirrel x1.7, spider x1.6, bee x1.1, dragonfly x1.1, blue jay x1.6, jumping spider x1.12); body length is the trail length of the body nodes. For scale: a twig branch is about 10 thick, a mid branch about 20, a trunk 45 to 60.
+Sizes and speeds are in world units after the per-animal scale in `ANIMALS` (the lizard x1.7, snake x1.5, ant x0.38, beetle x0.55, constrictor x3, eagle x2.6, cat x1.9, squirrel x1.7, spider x1.6, bee x1.1, dragonfly x1.1, blue jay x1.6, jumping spider x1.12); body length is the trail length of the body nodes. For scale: a twig branch is about 10 thick, a mid branch about 20, a trunk 45 to 60.
 
 | Animal | Category | Size class | Body length | Walk speed | Abilities |
 |---|---|---|---|---|---|
-| Ant | Crawlers | tiny | ~13 | 39 | Smallest; turns fast (3 rad/s); **cannot jump**; hold `Space` to **reach** a short way (~72) to bridge a twig gap; fits twigs; can walk on silk threads |
+| Ant | Reader (`1`) | microscopic | ~9 | 27 | The tiniest (x0.38; it took over the old mite's size); **reads on leaves**: next to a leaf `E` (or choosing it) opens the leaf view, see below; turns fast (3 rad/s); **cannot jump**; hold `Space` to **reach** a short way (~49) to bridge a twig gap; fits twigs; can walk on silk threads |
 | Spider | Crawlers | small | ~50 | 136 | Eight legs, high knees; **clings**: never loses grip, even fully underneath; **cannot jump**; spins **silk** (`X` tap: drop; hold `X` down, `Space` up, `WASD` swing, `Shift` let go, `C` cut; climbable, persistent threads) |
 | Jumping spider | Crawlers | small | ~34 | 106 | Dark body with an orange-red abdomen; **clings**; the one crawler that **jumps** (strong for its size, about 20 body lengths on the flat) with the full aim; also spins silk (a shorter rope) |
 | Snake | Crawlers | very long | ~945 | 165 | **Cannot jump**; hold `Space` to **reach** (up to ~645) as a living bridge; judged by its whole body for grip |
-| Mite | Crawlers | microscopic | ~9 | 19 | The tiniest and slowest (x0.55 of a 16-unit body, speed 34 x 0.55); **clings**; cannot jump or reach; can walk on silk threads; **reads on leaves**: next to a leaf, `E` (or choosing the mite) opens the leaf view, see below |
+| Constrictor (Würgeschlange) | Crawlers | huge | ~1900 | 330 | A very long snake with saddle markings (x3): the same rules as the snake, but its **reach** is up to ~1290 units and it is fast; judged by its whole body for grip |
+| Beetle | Crawlers | tiny | ~25 | 42 | A sturdy dark crawler at the ant's old size (x0.55); **cannot jump or reach**; fits twigs; can walk on silk threads |
 | Lizard | Walkers | large | ~286 | 221 | The all-rounder; normal leap, aimed |
 | Cat | Walkers | large | ~253 | 323 | Fastest walker, strongest leap (aimed); **mostly stays on top** (a cling limit of about 69 degrees from the top) |
 | Flying squirrel | Fliers | medium | ~153 | 238 | Aimed like the others, but every leap is a **glide** you can steer, dive and flare |
 | Bee | Fliers | tiny | ~25 | 50 | **Hover flight** (top speed ~231), lands by touching bark; walks slowly |
 | Dragonfly | Fliers | small | ~61 | 55 | **Hover flight**, faster and darting (top ~363); lands by touching bark |
 | Blue jay | Fliers | medium | ~125 | 224 | **Wing flight**: always moves forward, trades height for speed; two feet; lands with `Shift` (**landing mode** steers it towards a branch) |
+| Eagle | Fliers | large | ~270 | 468 | **Wing flight** like the jay but big and fast (top speed ~2340, a **skydive** reaches ~3900 in the mouse camera); white head and tail, hooked beak, long wings; lands with `Shift` (landing mode) |
 
 (Numbers are derived from the specs in `sim3.ts` and rounded; treat them as relative sizes, they are tuning values that may change.)
 
@@ -45,12 +48,14 @@ Every animal is drawn in both [looks](Tree-View-Yggdrasil.md#looks) from the sam
 | Spider | Brown cephalothorax with a cluster of eyes, fangs and palps; a big ovoid abdomen with pale chevrons; eight long, jointed legs with a high knee and a short tarsus, banded joints. |
 | Jumping spider | Dark, compact body with two **big forward eyes** (with a glint), smaller eyes above and a white-fuzz face; an **orange-red abdomen** with a dark stripe; shorter, thicker legs with pale joints. Stretches its legs when it jumps. |
 | Snake | A long tube of diamond blotches on tan with a cream belly; a flat wedge head with gold slit eyes and a **forked tongue that flicks**; the body **slithers** in an S wave while it moves and sways a little when idle. |
+| Constrictor (Würgeschlange) | Crawlers | huge | ~1900 | 330 | A very long snake with saddle markings (x3): the same rules as the snake, but its **reach** is up to ~1290 units and it is fast; judged by its whole body for grip |
 | Lizard | Green with dark saddle bands, a spiky dorsal crest, a banded tail that sways and wiggles; wedge head with gold eyes and a forked tongue; sprawled four-toed legs, belly close to the bark. |
 | Cat | Orange tabby: dark stripes, a cream chest and belly, a ringed tail that is **held up and sways**; round head with pointed pink-lined ears (that twitch), green eyes with slit pupils, a pink nose and whiskers; taller, straighter legs with cream paws. |
 | Flying squirrel | Grey-brown with a cream belly, a big bushy raised tail with a dark-ringed tip, big dark eyes with a glint, round ears and whiskers; **glide membranes** spread between the front and hind legs while it glides (legs stretched out wide, tail streams back). |
 | Bee | Yellow-and-black banded abdomen with a sting, fuzzy thorax, big dark eyes and antennae; two pairs of translucent wings, folded back when perched and beating while it flies; the abdomen droops a little in flight. |
 | Dragonfly | A long, slender, segmented blue abdomen, a green thorax, huge blue compound eyes; four long translucent wings with a dark mark: held **out flat** when perched, beating in alternating pairs in flight. |
 | Blue jay | Blue back with a **swept-back crest**, a white face and belly, a black collar and a dark beak; a barred blue-black-white tail fan; wings of two panels (arm and hand) with black bars and white tips: folded while perched, **flapping with the `Space` effort** and held out when it glides; two thin feet (not shown in flight). |
+| Eagle | Fliers | large | ~270 | 468 | **Wing flight** like the jay but big and fast (top speed ~2340, a **skydive** reaches ~3900 in the mouse camera); white head and tail, hooked beak, long wings; lands with `Shift` (landing mode) |
 
 ## Controls common to all
 
@@ -75,7 +80,7 @@ Misses are never fatal: if you hit nothing within a short time (2.2 s; 7 s for g
 Hanging on a surface whose normal points down drains the grip; the top refills it. A vertical trunk never drains, a lightly overhanging branch drains very slowly, a full underside slips in about 2 seconds. The grip bar appears when it is below full, the animal trembles and flashes red when a fall is near, and a slip is a never-fatal drop.
 Per animal: the **snake** (`bodyGrip`) only drains when **no sampled part of its body** is on top; the **spider and jumping spider** (`clings`) never drain; the **cat** simply avoids the underside. `G` turns slipping off altogether. Fliers do not use grip while flying. Details and numbers: [Tree View](Tree-View-Yggdrasil.md#grip-and-gravity-what-makes-you-fall).
 
-### Reach (snake and ant)
+### Reach (snake, constrictor and ant)
 
 The two crawlers that cannot jump bridge gaps by stretching. Hold `Space`: the head stretches out past the branch (snake: about 255 units/s up to about 645 units; **ant: about 72 units/s up to about 72**, the base 130 scaled with the animal, enough for a twig gap of about 50) and then **holds there**. While you hold, `A`/`D` yaw the stretching head and `W`/`S` pitch it.
 If the head touches another branch it **bridges** onto it and you carry on from there. If you release without contact it **retracts** (faster than it stretched). Stretched out, grip refills while some part of the body is on top and drains slowly (0.32 per second) when none is; when it runs out you fall (never fatally) and are recovered. The ant's whole body leaves the branch when it reaches, so it holds on by the spot it stretched out from. In the voxel look all creatures are drawn a little higher (the bark blocks stick out past the true surface), so the ant no longer sinks into the blocks.
@@ -97,9 +102,9 @@ If you touch a branch while hanging or after letting go, you **land** there and 
 
 In the **mouse camera** (fourth entry of `V`) the direction the camera looks steers everything that is aimed instead of `A`/`D`/`W`/`S`: the **reach** of the snake and the ant (the head turns towards where you look, pitch follows the elevation), the **jump aim** (yaw and pitch follow the camera at up to 3.5 rad/s; a manual key still wins that axis), **flight** (the heading turns to the camera; the hover fliers fly where you look, so `W` also climbs when you look up; the jay's pitch follows the camera's elevation) and the **spider's swing**. Walking itself is unchanged (guided keys read against the branch).
 
-### The mite and the leaf view
+### The ant and the leaf view
 
-The mite (`1` cycles through the crawlers: ant, spider, jumping spider, snake, mite) is built for **reading**. With the mite selected, standing near a leaf (within about 140 units), pressing `E` (or double-clicking the leaf, or choosing the mite when you already stand next to one) switches to the **leaf view**: one full-screen canvas with a single magnified leaf (the size follows the note's length up to a cap: `bladeSize`), the note's text laid out on it as plain text (`lib/leafreader.ts`: headings, paragraphs, lists, quotes and code from the note's HTML / markdown / source; scripts, styles and all tags are dropped), and the mite walking on the text. `S`/`Down` read on, `W`/`Up` back, `A`/`D` sideways, the mouse wheel / `PageUp` / `PageDown` / `Space` scroll; a note longer than the leaf scrolls past along its midrib as the mite walks; the line under the mite is highlighted. `R` / `Enter` open the normal reader (images, tables, links), `Esc` or the number keys `1`/`2`/`3` (another animal) climb back out into the tree where you were. Types without text (images, canvases) show a notice and offer the reader. A leaf whose note is **learnable** (label `biblio_learn`, own or inherited) says so in the corner; the gardener and the quiz modes will only ever use such notes, and `biblio_noai` keeps a note away from any AI provider.
+The ant (key `1`, alone in its own category) is built for **reading**. With the ant selected, standing near a leaf (within about 140 units), pressing `E` (or double-clicking the leaf, or choosing the ant when you already stand next to one) switches to the **leaf view**: one full-screen canvas with a single magnified leaf (the size follows the note's length up to a cap: `bladeSize`), the note's text laid out on it as plain text (`lib/leafreader.ts`: headings, paragraphs, lists, quotes and code from the note's HTML / markdown / source; scripts, styles and all tags are dropped), and the ant walking on the text. `S`/`Down` read on, `W`/`Up` back, `A`/`D` sideways, the mouse wheel / `PageUp` / `PageDown` / `Space` scroll; a note longer than the leaf scrolls past along its midrib as the ant walks; the line under the ant is highlighted. `R` / `Enter` open the normal reader (images, tables, links), `Esc` or the number keys `2`/`3`/`4` (another animal) climb back out into the tree where you were. Types without text (images, canvases) show a notice and offer the reader. A leaf whose note is **learnable** (label `biblio_learn`, own or inherited) says so in the corner; the gardener and the quiz modes will only ever use such notes, and `biblio_noai` keeps a note away from any AI provider.
 
 ### Glide (flying squirrel)
 
@@ -117,13 +122,15 @@ Any `Space` leap becomes a long, slow-falling glide (gravity x0.22, a gentle ter
 - **Landing:** touch any branch and you land (`autoLand`), or hold `Shift` while touching.
 - A perched bee or dragonfly just walks, slowly.
 
-**Wing flier (blue jay)** never hovers.
+**Wing fliers (blue jay, eagle)** never hover (the eagle is the same flier, bigger and much faster).
 
 - It always moves **forward**. `W` **dives** (pitches down, gains speed), `S` **climbs** (pitches up, loses speed); pitch is limited to plus or minus 55 degrees and eases back to a level glide when you release.
 - Speed follows an energy model: diving builds speed (up to the top speed in about two seconds), climbing bleeds it towards the stall speed, and **below the stall the nose drops**. Holding `Space` **flaps** for extra thrust and a little lift.
 - `A`/`D` bank-turn; turns are wide when fast and tighter when slow.
 - **Landing:** touching bark at cruise speed does *not* land the jay: it is pushed off along the surface normal (never through the bark). The perch it took off from only lands it after it has cleared it.
 - **Landing mode (hold `Shift`):** the jay flares (slows to about 1.15 times its stall speed, no nose-drop) and levels out, and a **target magnet** picks the best spot on a branch within about 400 units and 45 degrees of its heading (nearer, upper half of the branch preferred) and steers towards it; a green reticle marks the target. `A`/`D` still steer and win over the magnet. Touching a branch then lands it; touching one while slower than 1.4 times the stall speed also lands it without `Shift`. Perched, the jay stands on its two feet.
+
+**Flying with the mouse camera** (`V` to the fourth camera): the flier **flies where you look**. `W` is the **throttle** (hover fliers fly forward, wing fliers fly faster), `S` slows down (it never reverses), `A`/`D` **strafe** (slide sideways; the wing flier banks into it) instead of turning. **Skydive:** look steeply down and hold `W` (wing fliers only): the top speed rises to about 1.7 times the normal one and the dive gains speed twice as fast; when you pull the nose up or let go of `W` the extra speed **bleeds away** again. The other cameras keep the keyboard model above.
 
 A flier whose grip ran out (a slip fall) can press `Space` to open its wings while it falls. All fliers: never below 15 units above the ground, and a free-flight step is sub-stepped at 20 ms or less so a fast flier cannot skip through a twig. While flying you can still press `E` near a leaf to read it.
 

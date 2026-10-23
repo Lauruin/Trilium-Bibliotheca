@@ -109,13 +109,13 @@ W=800 H=480 node tools/tree-shots.js animals
 | `ground` | The floating demo log from far away (ground, horizon) |
 | `leaves` | Leaves on the demo trunk, both looks |
 | `squirrel` | A glide |
-| `snake` | A reach (its script presses `1` three times, which since the jumping spider joined the crawlers selects the **jumping spider**, so the picture no longer shows the snake) |
+| `snake` | A reach (its script presses `2` until the animal is the snake) |
 | `vault` | `lizard3d.html?vault`: overview with signs and bubbles, level view, leaves, both looks |
 | `kinds` | The five leaf kinds in three sizes on a demo twig (`SIGN=-1` mirrors them to the other side) |
 | `animals` | Nine animals perched (the jumping spider is not in its list), both looks, plus the three fliers in the air |
 
 Environment: `APP_URL` (default `http://localhost:5173`; the script appends `/lizard3d.html`), `W` and `H` (viewport, default 1280 by 760), `SIGN` (kinds only). Output goes to `shots/tree-*.png` (gitignored) and the script prints any console errors or warnings at the end.
-**Slowness note:** the pictures are rendered by software GL (SwiftShader), so each screenshot can take many seconds (the script waits up to 120 s per shot) and the `animals` scenario takes 24 of them. There is no scenario for the forest, the species, the jump-aim preview or silk yet; those are judged live (`lizard3d.html?vault` shows a synthetic vault through the real forest layout (add `&layout=hub|forest`, `&trees=N`, `&depth=D`, `&wave=fn:amp:freq`; a vault with many deep folders can run a software-GL browser out of memory, so use `&trees=6&depth=2` or lighter), which is the closest you get; the `vault` scenario photographs it). Run one scenario at a time and shrink the viewport with `W` and `H` while iterating.
+**Slowness note:** the pictures are rendered by software GL (SwiftShader), so each screenshot can take many seconds (the script waits up to 120 s per shot) and the `animals` scenario takes 26 of them. There is no scenario for the forest, the species, the jump-aim preview or silk yet; those are judged live (`lizard3d.html?vault` shows a synthetic vault through the real forest layout (add `&layout=hub|forest`, `&trees=N`, `&depth=D`, `&wave=fn:amp:freq`; a vault with many deep folders can run a software-GL browser out of memory, so use `&trees=6&depth=2` or lighter), which is the closest you get; the `vault` scenario photographs it). Run one scenario at a time and shrink the viewport with `W` and `H` while iterating.
 The 3D look itself is judged from these pictures, not asserted by tests.
 
 ### WebGL in the dev container

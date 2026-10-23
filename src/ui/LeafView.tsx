@@ -1,11 +1,11 @@
 /**
- * ui/LeafView.tsx — the LEAF VIEW: a note read on a magnified leaf by the mite.
+ * ui/LeafView.tsx — the LEAF VIEW: a note read on a magnified leaf by the ant.
  *
- * Entered with the mite selected next to a leaf (the tree view decides, see TreeView): the tree is left alone and a full-screen canvas shows
+ * Entered with the ant selected next to a leaf (the tree view decides, see TreeView): the tree is left alone and a full-screen canvas shows
  * ONE leaf: a low-poly blade whose size grows with the note's length (lib/leafreader.ts `bladeSize`, capped), the note's text laid out on it
- * as plain text (headings, paragraphs, lists, quotes, code: `blocksFor` + `layoutBlocks`), and the mite walking on the text. Longer notes than the
- * blade scroll past along the midrib as the mite walks (W back, S on, A/D sideways, wheel, PageUp/Down). The full-fidelity reader (images, tables) is one
- * key away (R). Choosing any other animal (1/2/3) or Esc climbs back out into the tree. Cheap: one 2D canvas, redrawn only while something moves.
+ * as plain text (headings, paragraphs, lists, quotes, code: `blocksFor` + `layoutBlocks`), and the ant walking on the text. Longer notes than the
+ * blade scroll past along the midrib as the ant walks (W back, S on, A/D sideways, wheel, PageUp/Down). The full-fidelity reader (images, tables) is one
+ * key away (R). Choosing any other animal (1-4) or Esc climbs back out into the tree. Cheap: one 2D canvas, redrawn only while something moves.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -49,7 +49,7 @@ export function LeafView(props: { note: LeafViewNote; onClose: (animalKey?: numb
   const [chars, setChars] = useState(0);
   const lay = useRef<{ lines: LaidLine[]; height: number; colW: number; blocksText: number }>({ lines: [], height: 0, colW: 0, blocksText: 0 });
   const blocksRef = useRef<ReturnType<typeof blocksFor>>([]);
-  const mite = useRef({ x: 0, y: 0, face: Math.PI / 2, t: 0, moving: 0 });
+  const ant = useRef({ x: 0, y: 0, face: Math.PI / 2, t: 0, moving: 0 });
   const keys = useRef(new Set<string>());
   const dirty = useRef(true);
   const onClose = useRef(props.onClose);
@@ -73,7 +73,7 @@ export function LeafView(props: { note: LeafViewNote; onClose: (animalKey?: numb
       blocksRef.current = blocksFor(note.type, content);
       const n = blocksRef.current.reduce((a, b) => a + b.text.length, 0);
       setChars(n);
-      mite.current = { x: 0, y: 0, face: Math.PI / 2, t: 0, moving: 0 };
+      ant.current = { x: 0, y: 0, face: Math.PI / 2, t: 0, moving: 0 };
       lay.current.colW = 0; // force a layout
       setStatus("ready");
       dirty.current = true;
@@ -100,7 +100,7 @@ export function LeafView(props: { note: LeafViewNote; onClose: (animalKey?: numb
       if (k === "escape") {
         e.preventDefault();
         onClose.current();
-      } else if (k === "1" || k === "2" || k === "3") {
+      } else if (k === "1" || k === "2" || k === "3" || k === "4") {
         e.preventDefault();
         onClose.current(Number(k));
       } else if (k === "r" || k === "enter") {
@@ -147,8 +147,8 @@ export function LeafView(props: { note: LeafViewNote; onClose: (animalKey?: numb
     window.addEventListener("resize", resize);
     const onWheel = (e: WheelEvent): void => {
       e.preventDefault();
-      mite.current.y = Math.max(0, Math.min(lay.current.height, mite.current.y + e.deltaY * 0.8));
-      mite.current.moving = 0.3;
+      ant.current.y = Math.max(0, Math.min(lay.current.height, ant.current.y + e.deltaY * 0.8));
+      ant.current.moving = 0.3;
       dirty.current = true;
     };
     cv.addEventListener("wheel", onWheel, { passive: false });
@@ -160,7 +160,7 @@ export function LeafView(props: { note: LeafViewNote; onClose: (animalKey?: numb
       raf = requestAnimationFrame(frame);
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      const m = mite.current;
+      const m = ant.current;
       const k = keys.current;
       const L = lay.current;
       // walking: S / Down read on (down the text), W / Up back, A / D sideways; PageUp / PageDown / Space jump a screenful
@@ -305,10 +305,10 @@ export function LeafView(props: { note: LeafViewNote; onClose: (animalKey?: numb
       }
       ctx.restore();
 
-      // the mite
+      // the ant
       const mx = cx + m.x;
       const my = Math.max(bandTop + 8, Math.min(bandTop + bandH - 8, bandTop + 12 - scroll + m.y - 4));
-      drawMite(ctx, mx, my, m.face, m.t);
+      drawAnt(ctx, mx, my, m.face, m.t);
 
       // frame furniture
       ctx.font = `bold 18px ${SERIF}`;
@@ -318,7 +318,7 @@ export function LeafView(props: { note: LeafViewNote; onClose: (animalKey?: numb
       ctx.font = `13px ${SERIF}`;
       ctx.fillStyle = "#b9b09a";
       const prog = L.height > 0 ? Math.round((m.y / L.height) * 100) : 0;
-      ctx.fillText(`${status === "loading" ? "loading…" : `${prog}%`}  ·  S read on · W back · A/D sideways · wheel scrolls · R open in the reader · Esc or 1/2/3 climb back out`, cx, Math.min(H - 12, top + bh + 44));
+      ctx.fillText(`${status === "loading" ? "loading…" : `${prog}%`}  ·  S read on · W back · A/D sideways · wheel scrolls · R open in the reader · Esc or 1-4 (another animal) climb back out`, cx, Math.min(H - 12, top + bh + 44));
       ctx.textAlign = "left";
       if (note.learn) {
         ctx.font = `12px ${SERIF}`;
@@ -351,38 +351,43 @@ export function LeafView(props: { note: LeafViewNote; onClose: (animalKey?: numb
   );
 }
 
-/** A tiny red mite: round body, head, eight legs that scurry while it moves. */
-function drawMite(ctx: CanvasRenderingContext2D, x: number, y: number, face: number, t: number): void {
+/** A tiny ant: head, thorax, abdomen, six legs that scurry while it moves. */
+function drawAnt(ctx: CanvasRenderingContext2D, x: number, y: number, face: number, t: number): void {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(face - Math.PI / 2);
-  ctx.strokeStyle = "#7a2c1c";
-  ctx.lineWidth = 1.6;
-  for (let i = 0; i < 4; i++) {
-    const oy = -3 + i * 3.2;
-    const s = Math.sin(t * 22 + i * 1.7) * 2.2;
+  ctx.strokeStyle = "#2a2018";
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 3; i++) {
+    const oy = -2 + i * 3.4;
+    const s = Math.sin(t * 22 + i * 2.1) * 2.4;
     for (const side of [-1, 1]) {
       ctx.beginPath();
-      ctx.moveTo(side * 3, oy);
-      ctx.lineTo(side * 8.5, oy - 3 + s);
-      ctx.lineTo(side * 11, oy + 1 + s);
+      ctx.moveTo(side * 2, oy);
+      ctx.lineTo(side * 7, oy - 3 + s);
+      ctx.lineTo(side * 10, oy + 2 + s);
       ctx.stroke();
     }
   }
-  ctx.fillStyle = "#b5472c";
+  ctx.fillStyle = "#3a2a1c";
   ctx.beginPath();
-  ctx.ellipse(0, 2, 5.2, 6.2, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 7, 3.6, 5, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#e8c090";
+  ctx.fillStyle = "#4a3624";
   ctx.beginPath();
-  ctx.ellipse(0, 4, 2.6, 2.4, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0.5, 2.4, 3, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#c4553a";
+  ctx.fillStyle = "#2a2018";
   ctx.beginPath();
-  ctx.ellipse(0, -5, 3, 2.8, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, -4.6, 2.8, 2.6, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#1a0c0a";
-  ctx.fillRect(-2.2, -6.4, 1.3, 1.3);
-  ctx.fillRect(0.9, -6.4, 1.3, 1.3);
+  ctx.strokeStyle = "#2a2018";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-1, -6.5);
+  ctx.lineTo(-3.5, -10);
+  ctx.moveTo(1, -6.5);
+  ctx.lineTo(3.5, -10);
+  ctx.stroke();
   ctx.restore();
 }

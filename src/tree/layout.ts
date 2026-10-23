@@ -326,11 +326,16 @@ export const YGG_CLEAR = 260;
 const CROWN_FROM = 0.5;
 const CROWN_TO = 0.92;
 const CROWN_LEN = 900;
+/** LOW places (the porch, the wisp's branch ...): a few steps up the trunk, above the roots' zones, nearly horizontal and sturdy. */
+export const LOW_FROM = 190;
+export const LOW_STEP = 80;
+const LOW_LEN = 430;
 
-/** A place in the world tree's crown (a game mode or tool; see tree/places.ts): one limb each. */
+/** A place on a limb of the world tree (a point of interest, game mode or tool; see tree/places.ts): one limb each. `slot` low = near the foot, crown = high up. */
 export interface CrownPlace {
   id: string;
   title: string;
+  slot?: "low" | "crown";
 }
 
 /** Root-arch horizontal run: max(200, 70 per tree); beyond 30 trees it is only as large as the trunk thickness needs. */
@@ -402,7 +407,7 @@ type Role =
   | { kind: "trunk"; i: number; n: number; run: number; calcSp: SpeciesKey; az: number; forest?: boolean }
   | { kind: "side"; i: number; n: number; inherited: SpeciesKey; parentIdx: number; sCalc: number };
 
-export function layoutTree(tree: LibraryTree, opts: { overrides?: ExplicitOverrides; mode?: LayoutMode; places?: readonly CrownPlace[] } = {}): TreeLayout {
+export function layoutTree(tree: LibraryTree, opts: { overrides?: ExplicitOverrides; mode?: LayoutMode; places?: readonly CrownPlace[]; crown?: boolean } = {}): TreeLayout {
   const mode: LayoutMode = opts.mode === "forest" ? "forest" : "hub";
   const world: World = { branches: new Map(), groundY: 0 }; // the hub grows from y = 0
   const leaves: Leaf[] = [];
@@ -732,7 +737,7 @@ export function layoutTree(tree: LibraryTree, opts: { overrides?: ExplicitOverri
         for (const b of g.made) b.pts = b.pts.map((p) => v3(p.x + x, p.y, p.z + z));
         const trunk = world.branches.get(g.tid)!;
         const rs0 = clamp(0.62 * trunk.r, 5, trunk.r);
-        const path = rootPath({ x, z }, trunk.pts[0], trunk.T[0], rs0, trunk.r, rnd(g.tid, 6));
+        const path = rootPath({ x, z }, trunk.pts[0], trunk.T[0], rs0, trunk.r, rnd(g.tid, 6), hub.r * 0.9);
         const root = makeBranch(`root:${g.tid}`, path.pts, rs0, rootId, path.c0, trunk.r);
         root.root = true;
         root.species = trunk.species;
@@ -744,31 +749,68 @@ export function layoutTree(tree: LibraryTree, opts: { overrides?: ExplicitOverri
     }
   }
 
-  // ---- the crown: one limb per place, leaving the world tree's upper trunk, fanned round it (forest only) ----
+  // ---- limbs of the world tree (forest only): LOW places near the foot (the porch you start on, the wisp's branch ...), CROWN places up high, and
+  // with `opts.crown` a real crown of decorative limbs and a treetop so the top of the tree is a tree and not a pole ----
   const placed: Array<{ id: string; title: string; branchId: string }> = [];
   if (world3) {
     const hub = world.branches.get(rootId)!;
     const places = (opts.places ?? []).filter((pl, i, a) => pl.id && a.findIndex((x) => x.id === pl.id) === i);
-    places.forEach((pl, i) => {
-      const bid = `place:${pl.id}`;
-      const t = places.length === 1 ? 0.7 : CROWN_FROM + ((CROWN_TO - CROWN_FROM) * (i + 0.5)) / places.length;
-      const attachS = hub.total * t;
-      const f = frameAt(hub, attachS);
-      const az = i * GOLDEN + rnd(bid, 1) * 0.5;
-      const pitch = (52 + 18 * rnd(bid, 2)) * DEG;
+    const low = places.filter((p) => p.slot === "low");
+    const high = places.filter((p) => p.slot !== "low");
+    const limb = (bid: string, par: Branch, attachS: number, az: number, pitchDeg: number, len: number, r: number, rEnd: number, tau: number, bend: number, upBias: number): Branch => {
+      const f = frameAt(par, attachS);
+      const pitch = pitchDeg * DEG;
       const side = add(mul(f.u, Math.cos(az)), mul(f.b, Math.sin(az)));
-      const dir = lift(norm(add(add(mul(f.t, Math.cos(pitch)), mul(side, Math.sin(pitch))), v3(0, 0.3, 0))));
-      const len = CROWN_LEN * (0.85 + 0.3 * rnd(bid, 3));
-      const r = Math.max(20, 0.2 * radiusAt(hub, attachS));
-      const k = 5;
-      const ctrl = trace(bid, f.p, dir, k, len / k, 0.05, 1, 1, -0.1, f.p.y);
-      const branch = makeBranch(bid, smoothPath(ctrl, 22), r, rootId, attachS, Math.max(6, 0.3 * r));
-      branch.species = "yggdrasil";
-      branch.place = pl.id;
-      addBranch(world, branch);
+      const dir = lift(norm(add(add(mul(f.t, Math.cos(pitch)), mul(side, Math.sin(pitch))), v3(0, upBias, 0))));
+      const k = Math.max(3, Math.min(8, Math.round(len / 160)));
+      const ctrl = trace(bid, f.p, dir, k, len / k, tau, 1, 1, bend, f.p.y);
+      const br = makeBranch(bid, smoothPath(ctrl, 22), r, par.id, attachS, rEnd);
+      br.species = "yggdrasil";
+      addBranch(world, br);
       parentOf.set(bid, rootId);
+      return br;
+    };
+    // low places: sturdy, nearly horizontal, a little lift, spread round the trunk (the first one is the porch you spawn on)
+    low.forEach((pl, i) => {
+      const bid = `place:${pl.id}`;
+      const R = radiusAt(hub, LOW_FROM);
+      const r = Math.max(15, 0.11 * R);
+      const br = limb(bid, hub, LOW_FROM + LOW_STEP * i, i * 2.4 + rnd(bid, 1) * 0.6, 74 + 8 * rnd(bid, 2), LOW_LEN * (0.9 + 0.25 * rnd(bid, 3)), r, Math.max(9, 0.62 * r), 0.02, -0.04, 0.12);
+      br.place = pl.id;
       placed.push({ id: pl.id, title: pl.title, branchId: bid });
     });
+    // crown places
+    high.forEach((pl, i) => {
+      const bid = `place:${pl.id}`;
+      const t = high.length === 1 ? 0.7 : CROWN_FROM + ((CROWN_TO - CROWN_FROM) * (i + 0.5)) / high.length;
+      const attachS = hub.total * t;
+      const br = limb(bid, hub, attachS, i * GOLDEN + rnd(bid, 1) * 0.5, 52 + 18 * rnd(bid, 2), CROWN_LEN * (0.85 + 0.3 * rnd(bid, 3)), Math.max(20, 0.2 * radiusAt(hub, attachS)), 0, 0.05, -0.1, 0.3);
+      br.place = pl.id;
+      placed.push({ id: pl.id, title: pl.title, branchId: bid });
+    });
+    if (opts.crown) {
+      // decorative crown: limbs round the upper trunk, each with side twigs, plus a treetop of leaders: it carries the canopy
+      const NL = 9;
+      for (let i = 0; i < NL; i++) {
+        const bid = `crown:${i}`;
+        const t = 0.6 + (0.34 * (i + rnd(bid, 4))) / NL;
+        const attachS = hub.total * t;
+        const len = CROWN_LEN * (0.8 + 0.5 * rnd(bid, 3)) * (1.15 - 0.45 * ((t - 0.6) / 0.34));
+        const r = Math.max(14, 0.17 * radiusAt(hub, attachS));
+        const L = limb(bid, hub, attachS, i * GOLDEN + 0.7, 50 + 22 * rnd(bid, 2), len, r, Math.max(5, 0.22 * r), 0.06, -0.12, 0.35);
+        const sub = 2 + (i % 2);
+        for (let j = 0; j < sub; j++) {
+          const sid = `crown:${i}.${j}`;
+          const sa = L.total * (0.35 + (0.5 * (j + rnd(sid, 4))) / sub);
+          limb(sid, L, sa, j * 2.6 + rnd(sid, 1), 38 + 24 * rnd(sid, 2), len * (0.42 + 0.2 * rnd(sid, 3)), Math.max(5, 0.5 * radiusAt(L, sa)), 2.2, 0.06, -0.15, 0.3);
+        }
+      }
+      for (let i = 0; i < 3; i++) {
+        const bid = `crown:top${i}`;
+        const attachS = hub.total * (0.965 + 0.012 * i);
+        limb(bid, hub, attachS, i * 2.1 + 0.4, 16 + 8 * i, 520 + 120 * i, Math.max(14, 0.2 * radiusAt(hub, attachS)), 3, 0.08, 0, 0.5);
+      }
+    }
   }
 
   return { world, leaves, rootBranchId: rootId, mode, parentOf, info, places: placed };

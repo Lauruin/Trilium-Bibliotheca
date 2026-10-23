@@ -27,7 +27,7 @@ the wiki points to it instead of copying it wholesale.
 6. `O` shows the **overview** of all rooms; drag a room to a new cell and the position is saved as labels on the note.
 7. `B` opens **build mode**: themes, wall decor, furniture, rugs and bookcase finishes, each saved as one `biblio_*` label.
 8. `C` opens **quick capture**: type a thought, `Ctrl+Enter` files it as a new note under your Inbox.
-9. `T` switches to the **forest**: `1`/`2`/`3` choose an animal category (crawlers, walkers, fliers), `W`/`A`/`S`/`D` move, hold `Space` to aim a jump (or take off, or reach), `X` spins silk (spiders), `B` edits the branch you stand on, `E` reads a leaf.
+9. `T` switches to the **forest**: `1`-`4` choose an animal category (reader, crawlers, walkers, fliers), `W`/`A`/`S`/`D` move, hold `Space` to aim a jump (or take off, or reach), `X` spins silk (spiders), `B` edits the branch you stand on, `E` reads a leaf.
 10. If the server is unreachable, the last tree snapshot opens instead (marked "offline").
 
 ## Where to go next

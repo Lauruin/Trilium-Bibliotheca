@@ -1,12 +1,12 @@
 /**
  * tree/proto.ts — standalone feel-test page for the Yggdrasil view (lizard3d.html):
  * demo tree, no Trilium (`?vault` = a synthetic vault through the real layout, `&layout=hub|forest` (default forest), `&trees=N` top-level folders, `&depth=D` levels, `&wave=fn:amp:freq` a wave on every branch, `&shrine` the shrine and the wisp's lantern post, `&places=N` N stand-in crown limbs of the world tree). Keys: W up the branch / S down / A/D turn on it (M = free mode: W forward, A/D steer) · Space HOLD = aim a jump, release = leap
- * (snake / ant: hold to reach; bee / dragonfly / jay: take off) · X spider silk · 1/2/3 animal categories (again = next) · G grip · H auto-align (free mode) · N branch names · V camera (chase/level/fixed) · L look (voxel/low-poly) · wheel/+/− zoom · P pixel mode · R respawn.
+ * (snake / ant: hold to reach; bee / dragonfly / jay: take off) · X spider silk · 1/2/3/4 animal categories (again = next) · G grip · H auto-align (free mode) · N branch names · V camera (chase/level/fixed) · L look (voxel/low-poly) · wheel/+/− zoom · P pixel mode · R respawn.
  */
 
 import { TreeScene, type Leaf } from "./TreeScene";
 import { DEFAULT_LAYOUT_MODE, layoutTree, parseLayoutMode } from "./layout";
-import { demoPlaces } from "./places";
+import { demoPlaces, PLACES } from "./places";
 import { makeDemoWorld } from "./world3";
 import type { LibraryTree, NoteInfo, TreeEdge } from "../types";
 
@@ -52,7 +52,7 @@ const vaultTree = useVault ? demoVault() : null;
 const waveOv = waveSpec.length === 3 && vaultTree
   ? new Map(Object.keys(vaultTree.notes).map((id) => [id, { waveFn: waveSpec[0], wave: Number(waveSpec[1]), waveFreq: Number(waveSpec[2]) }]))
   : undefined;
-const vault = vaultTree ? layoutTree(vaultTree, { mode: parseLayoutMode(params.get("layout")) ?? DEFAULT_LAYOUT_MODE, overrides: waveOv, places: demoPlaces(Number(params.get("places")) || 0) }) : null;
+const vault = vaultTree ? layoutTree(vaultTree, { mode: parseLayoutMode(params.get("layout")) ?? DEFAULT_LAYOUT_MODE, overrides: waveOv, places: params.has("shrine") ? [...PLACES, ...demoPlaces(Number(params.get("places")) || 0)] : demoPlaces(Number(params.get("places")) || 0), crown: params.has("shrine") }) : null;
 const startBranch = vault ? vault.rootBranchId : "trunk";
 const startS = vault ? 120 : 220;
 
@@ -85,7 +85,7 @@ try {
   hud.textContent = "WebGL unavailable in this browser — the 3D tree needs it.";
   throw e;
 }
-scene.setWorld(world, leaves, startBranch, startS, new Map([...world.branches.keys()].map((id) => [id, id === 'root' ? 'Yggdrasil' : id.startsWith('place:') ? (demoPlaces(8).find((p) => 'place:' + p.id === id)?.title ?? id) : id])));
+scene.setWorld(world, leaves, startBranch, startS, new Map([...world.branches.keys()].map((id) => [id, id === 'root' ? 'Yggdrasil' : id.startsWith('place:') ? ([...PLACES, ...demoPlaces(8)].find((p) => 'place:' + p.id === id)?.title ?? id) : id])));
 if (vault && params.has("shrine")) {
   // `&shrine`: the app's shrine (door, altar, lantern post with the wisp) and the animal at its door
   scene.setShrine(true);
@@ -106,7 +106,7 @@ scene.onHud = (h) => {
   hud.innerHTML =
     `<b>${h.animal}</b> on ${h.branch} · θ=${((h.th * 180) / Math.PI).toFixed(0)}° φ=${((h.phi * 180) / Math.PI).toFixed(0)}°${h.airborne ? " · AIRBORNE" : ""}${h.reaching ? " · REACHING" : ""} · camera: ${h.camera} · look: ${h.look}` +
     `${h.climb ? ` · <b>Shift</b> climb into ${h.climb}` : ""}${h.nearLeaf ? ` · <b>E</b> read “${h.nearLeaf.title}”` : ""}${hud.dataset.last ? ` · ${hud.dataset.last}` : ""}<br>` +
-    `${h.moveMode === 'guided' ? 'W up the branch · S down · A/D turn on it' : 'W forward · A/D steer'} · M move: ${h.moveMode} · hold Space = aim a jump (arc preview, auto-target, A/D W/S), release = leap · snake: hold = reach, steer it with WASD · squirrel glide: W dive / S flare · bee/dragonfly/jay: Space = take off · 1/2/3 animal category (again = next) · G grip ${h.gripOn ? "ON" : "off"} · H auto-align ${h.moveMode === 'free' ? (h.autoAlign ? 'on' : 'off') : 'n/a'} · N names · F foliage · K shadows · V camera · L look · wheel/+/− zoom · P pixel mode · R respawn`;
+    `${h.moveMode === 'guided' ? 'W up the branch · S down · A/D turn on it' : 'W forward · A/D steer'} · M move: ${h.moveMode} · hold Space = aim a jump (arc preview, auto-target, A/D W/S), release = leap · snake: hold = reach, steer it with WASD · squirrel glide: W dive / S flare · bee/dragonfly/jay: Space = take off · 1/2/3/4 animal category (again = next) · G grip ${h.gripOn ? "ON" : "off"} · H auto-align ${h.moveMode === 'free' ? (h.autoAlign ? 'on' : 'off') : 'n/a'} · N names · F foliage · K shadows · V camera · L look · wheel/+/− zoom · P pixel mode · R respawn`;
   (window as unknown as { __tree: unknown }).__tree = { head: scene.creature.head, air: !!scene.creature.air, reach: !!scene.creature.reach, animal: scene.creature.animal.id, zoom: scene.zoomMul, chase: scene.chase, camera: scene.camMode, look: scene.look, grip: scene.creature.grip };
 };
 addEventListener("keydown", (e) => {

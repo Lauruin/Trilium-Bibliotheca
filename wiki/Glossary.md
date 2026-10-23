@@ -29,7 +29,7 @@ Terms in alphabetical order. Where a word means two things (Trilium and Biblioth
 
 **Calculated / override / effective** - for a branch property: what the layout computes, the label that replaces it (only present while it differs), and the value used (`override ?? calculated`). Removing the label is "recalculate".
 
-**Category** - a group of animals on a number key: `1` crawlers (ant, spider, jumping spider, snake), `2` walkers (lizard, cat), `3` fliers (flying squirrel, bee, dragonfly, blue jay).
+**Category** - a group of animals on a number key: `1` reader (ant), `2` crawlers (beetle, spider, jumping spider, snake, constrictor), `3` walkers (lizard, cat), `4` fliers (flying squirrel, bee, dragonfly, blue jay, eagle).
 
 **Clone** - a note that has more than one parent in Trilium. The app records every parent edge and fetches the note once.
 

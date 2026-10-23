@@ -1,5 +1,5 @@
 /**
- * lib/leafreader.ts — turning a note into text for the LEAF VIEW (the mite's reader): PURE, no DOM, unit-tested (tools/unit-leaf.mjs).
+ * lib/leafreader.ts — turning a note into text for the LEAF VIEW (the ant's reader): PURE, no DOM, unit-tested (tools/unit-leaf.mjs).
  *
  * The leaf view shows a note as plain text on a leaf (headings, paragraphs, lists, quotes, code), not as the full-fidelity HTML of the normal
  * reader (that stays one key away for images, tables and the like). So here the note's HTML / markdown / code becomes a short list of
@@ -270,7 +270,7 @@ export function bladeSize(chars: number, viewW: number, viewH: number): { w: num
   return { w: h * BLADE_ASPECT, h, scale };
 }
 
-/** Scroll position (px into the text) that keeps the mite at `my` in the middle of a window `win` px tall over a text `total` px tall. */
+/** Scroll position (px into the text) that keeps the ant at `my` in the middle of a window `win` px tall over a text `total` px tall. */
 export function scrollFor(my: number, total: number, win: number): number {
   if (!(total > win)) return 0;
   return Math.min(total - win, Math.max(0, my - win / 2));

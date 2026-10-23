@@ -2,7 +2,7 @@
 
 The app **starts here** (WebGL permitting; `?view=library` forces the library). Your vault is a **forest you climb as an animal**: the library root is **Yggdrasil**, a giant world tree in the middle (see [The world tree and its shrine](#the-world-tree-and-its-shrine)), every top-level folder is its own tree of one of 13 species standing in the ground (joined to Yggdrasil's foot by walkable ground roots; the older **hub** layout, where all trunks arch out of one short stump, stays selectable with `Y`), other folders are branches, notes are leaves. It is a real 3D scene (three.js), so it **needs WebGL**; without it the
 view shows "The tree view needs WebGL, which is not available in this browser." and the app starts in the library instead (with a toast).
-The library is entered through the **door** in Yggdrasil's foot (`E` there); in the library `T` (or the **tree** button) brings you back to that door; `T` does nothing in the tree. The library's code is a lazy chunk loaded the first time you use the door; its scene is paused while you are in the tree.
+The library is entered through the **door** in Yggdrasil's foot (`E` there); in the library `T` (or the **tree** button) brings you back out onto the **porch** (the spawn); `T` does nothing in the tree. The library's code is a lazy chunk loaded the first time you use the door; its scene is paused while you are in the tree.
 
 The same `LibraryTree` that builds the rooms builds the tree, so the 400-note / depth-8 walk caps apply here too. Animals have their own page: [Animals Guide](Animals-Guide.md).
 The code lives in `src/tree/` (pure layout and simulation, unit-tested) plus `src/ui/TreeView.tsx`, `src/ui/BranchPanel.tsx` and `src/lib/treeedit.ts` (the branch property editor).
@@ -19,7 +19,7 @@ The code lives in `src/tree/` (pure layout and simulation, unit-tested) plus `sr
 | `Shift` held | **Stay on this branch** (walking up past a side branch's base does not turn you into it); at the base of a ground root or at the end of a silk thread it climbs in (those keep the old rule). While flying: bee/dragonfly fly **down**; any flier touching a branch while Shift is held **lands**; the **blue jay** goes into **landing mode** (it flares and is drawn towards a branch ahead, see the [Animals Guide](Animals-Guide.md#flight-bee-dragonfly-blue-jay)). While aiming a jump: cancels |
 | `E` | Read the leaf next to you (opens the note in the [Reader](Reader.md)); works while perched or hovering within about 70 units of a leaf |
 | `B` | **Edit the properties of the branch you stand on** (opens the panel, see [Editing branches](#editing-branches-b)); `B` again closes it. Does nothing on a silk thread |
-| `1` / `2` / `3` | Pick an animal **category**: crawlers (ant, spider, jumping spider, snake), walkers (lizard, cat), fliers (flying squirrel, bee, dragonfly, blue jay). Press the same key again to cycle through that category |
+| `1` / `2` / `3` / `4` | Pick an animal **category**: reader (ant), crawlers (beetle, spider, jumping spider, snake, constrictor), walkers (lizard, cat), fliers (flying squirrel, bee, dragonfly, blue jay, eagle). Press the same key again to cycle through that category |
 | `G` | Grip on/off. Off means you never slip |
 | `H` | Auto-align on/off (default on) - **free movement only**: gently straightens your heading along the branch while you are not steering (guided movement always straightens; the button shows "n/a") |
 | `V` | Camera: chase, level, fixed (remembered) |
@@ -32,7 +32,7 @@ The code lives in `src/tree/` (pure layout and simulation, unit-tested) plus `sr
 | `P` | Pixel mode: renders at 0.4 pixel ratio with `image-rendering: pixelated` for a chunky look |
 | Mouse wheel, `+` / `-` | Zoom (factor 0.2 to 8; default 1.5) |
 | `T` | Nothing in the tree (the library is entered through the door at Yggdrasil's foot; `T` leaves the library) |
-| `E` at a pad | The **door** (library), the **altar** (shrine panel), the **wisp** (search) at Yggdrasil's foot, or a **lantern** at the tip of a crown limb (a place); a click on the wisp also opens the search |
+| `E` at a pad | The **door** (library), the **altar** (shrine panel, in the porch's nest: where you start), the **wisp** (search, on its own low branch), or a **lantern** at the tip of a crown limb (a place); a click on the wisp also opens the search |
 | `C` | Cut the silk thread you stand on or the rope you hang from (it is removed from storage too) |
 | `R` | Respawn - **only on the prototype page** `lizard3d.html` |
 
@@ -139,7 +139,7 @@ takes a **never-fatal recovery**: it is put back on the nearest branch, or on to
 
 ### Names (`N`)
 
-Folder names as sprites: **signs** (a wooden board at the base of each big branch, start radius 13 or more; hidden behind bark), **bubbles** (a speech bubble over every branch, drawn over everything, like a map), or **off**.
+Folder names as sprites: **signs** (a big branch, start radius 13 or more, gets a wooden board fixed on its TOP that turns to face the camera; a smaller one, radius 3.5 or more, has its name written on the wood itself; branches shorter than 90 units get none), **bubbles** (a speech bubble over every branch, drawn over everything, like a map), or **off**.
 Default is signs. Sprites keep a roughly constant on-screen size. A "labels legend" is an *open idea*, not built; see [Roadmap and Ideas](Roadmap-and-Ideas.md).
 
 ### Foliage (`F`)
@@ -167,7 +167,7 @@ Both looks are built from the same data; switching only rebuilds meshes and the 
 | Leaves | Voxel clusters | Faceted vertex-coloured triangles, each a little different in tint, lighter at the tip, swaying in the wind |
 | Animals | Blocky: stepped boxes, same model data | Faceted tubes, blobs, cones and prisms with crisp per-face colours (see [Animals Guide](Animals-Guide.md#what-they-look-like)) |
 | Ground / mountains | Tiled blocks, stepped pyramids | Rolling faceted terrain (flat under the forest), colour patches, forest floor, grass tufts, flowers, mushrooms, rocks, bushes, a pond, hills, snow-capped mountains |
-| Sky | Dome + sun, cube clouds | Dome with a warm glow round the sun, flat-bottomed low-poly clouds that drift, soft vignette |
+| Sky | Dome + sun, cube clouds | Dome with a warm glow round the sun, flat-bottomed low-poly clouds that stand in the world (80 of them, not attached to the camera: fly up and you pass between them) and drift, soft vignette |
 | Cost | About 3 to 5 thousand cubes per branch (instanced); a 400-note vault has about 100 branches, fine on a GPU | Far cheaper |
 
 Both share the sky, fog, rocks, bushes and pines, the [sun shadows](#light-shadows-and-scenery) and the [foliage](#foliage-f). Why voxel is the default: [Decisions](Decisions.md) (the user now prefers the low-poly look, so that is where the polish went).
@@ -272,9 +272,9 @@ The tree view **reads** your vault and writes only what you save from the branch
 
 `lizard3d.html` (dev: `http://localhost:5173/lizard3d.html`; hosted: `/lizard3d.html`) runs the same scene on a hand-made demo log, **without Trilium**. Add `?vault` to lay out a synthetic vault (random folders, note types and lengths) through the real `layoutTree`; extra parameters: `&layout=hub|forest` (default forest, not the stored preference), `&trees=N` (top-level folders), `&depth=D` (folder levels; keep it at 1 or 2 for software-GL screenshots), `&wave=fn:amp:freq` (for example `helix:0.06:3`, a wave on every folder). `R` respawns. It is also what `tools/tree-shots.js` photographs; see [Testing](Testing.md).
 
-## The leaf view (the mite)
+## The leaf view (the ant)
 
-With the **mite** selected, `E` next to a leaf (or double-click it, or choose the mite next to one) opens the **leaf view**: a magnified leaf with the note's text on it and the mite walking on the text (details in the [Animals Guide](Animals-Guide.md#the-mite-and-the-leaf-view)). Next to any leaf the HUD also shows a short **excerpt** of the note (first ~160 characters), and so does the pointer when it hovers a leaf; the excerpts are cached in localStorage next to the leaf sizes.
+With the **ant** selected (`1`), `E` next to a leaf (or double-click it, or choose the ant next to one) opens the **leaf view**: a magnified leaf with the note's text on it and the ant walking on the text (details in the [Animals Guide](Animals-Guide.md#the-ant-and-the-leaf-view)). Next to any leaf the HUD also shows a short **excerpt** of the note (first ~160 characters), and so does the pointer when it hovers a leaf; the excerpts are cached in localStorage next to the leaf sizes.
 
 ## Time of day
 
@@ -284,8 +284,9 @@ The altar panel's **Clock** section sets the hour of the world: **real time** (l
 
 In **forest** layout the root note is not a stump but **Yggdrasil**: a giant tree (`yggdrasil` species, not part of the random pool; 3200 px tall, trunk radius 190-320, taper 0.18 so the top ends in a canopy) that towers over the other trees, which are pushed further out (`YGG_CLEAR`). The hub layout keeps the short stump. Its look in `shrine.ts` / `shrinemodel.ts` (pure geometry + one flat-shaded mesh, the same in both looks) and its pads:
 
-- At the **foot**, in the widest gaps between the ground roots: the **door** (stone frame, wooden door; `E` enters the library), the **altar** (`E` opens the shrine panel: library, wisp, "save in Trilium"; later the clock, unlocks, tutorial, editor) and a **lantern post** with the search **wisp** (`E` near it or a click on it opens the search; the wisp can also follow you: HUD button "wisp: ..." or the panel). A ring of standing stones fills the free stretches. Everything scales with the trunk (`footScale`). You start (and arrive back from the library) at the door.
-- In the **crown**: one limb per **place** (`tree/places.ts`; a game mode or tool; a lantern hangs at its tip and `E` there opens it). The registry is empty in this version (the demo page shows stand-ins with `&places=N`); each later feature registers itself and only unlocked places get a limb. Limbs are ordinary side branches (`Branch.place`), so they can be climbed and walked to by the autopilot.
+- **Low places** (a few steps up the trunk; `LOW_FROM` 190 px, `LOW_STEP` 80 apart, ~430 px long, `slot: "low"` in `tree/places.ts`): the **porch** - a sturdy limb whose tip is a woven **nest** with the **altar** in it (`E` opens the shrine panel: library, clock, "save in Trilium"; later unlocks, tutorial, editor); **you start here** and arrive back here from the library - and the **wisp's branch** (an iron cradle at its tip; `E` near it or a click on the wisp opens the search; the wisp can also follow you: HUD button "wisp: ..." or the panel). Later characters (Socrates ...) get a low branch each. Without these limbs (hub layout, or a world without places) the old foot arrangement stays: altar and lantern post in the widest gaps between the ground roots.
+- At the **foot**: the **door** (stone frame, wooden door; `E` enters the library) in the widest gap between the ground roots, and a ring of standing stones. Everything scales with the trunk (`footScale`). Walking from a ground root up onto the trunk is ordinary walking (the roots start on the trunk's surface, not inside it).
+- In the **crown**: one limb per **crown place** (`tree/places.ts`; a game mode or tool; a lantern hangs at its tip and `E` there opens it) plus decorative limbs and a treetop so it reads as a real crown. No crown place is registered in this version (the demo page shows stand-ins with `&places=N`); each later feature registers itself and only unlocked places get a limb. Limbs are ordinary side branches (`Branch.place`), so they can be climbed and walked to by the autopilot.
 - The **star junction**: the roots meet at the foot like a star. Walking **down** the trunk into the foot (below the roots' zones, `starTop`) takes the root nearest the side of the bark you face (within `STAR_ARC` 0.85 rad, and only when facing down, `STAR_FACING`); `Shift` stays on the trunk; the root you just came up is not offered again.
 - The **search wisp** (`wisp.ts`: where it is, flight with a speed cap) perches over the lantern post, follows you, or flies to a note to **light the way** (hovers beside it with a beam; released after you have stood there ~6 s). In the search panel a result that is in the tree gets **take me there** (the autopilot) and **light the way** (via `tree/bridge.ts`).
 - **Save in Trilium** (altar panel, off by default): see the README table of writes. `lib/save.ts` (pure: sanitised, bounded, merged: newer settings win, counters take the max, unlocked sets unite), `lib/yggdrasil.ts` (the folder + note by label), `state/savestore.ts` (the opt-in flag, local cache, load / save). Only allow-listed view settings and progress are stored, never the connection settings. The walk keeps the `biblio_yggdrasil` folder out of the library and the trees.

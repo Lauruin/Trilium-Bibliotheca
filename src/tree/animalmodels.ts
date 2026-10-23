@@ -602,23 +602,76 @@ export const BLUEJAY_MODEL: Model = {
   breathe: 0.03,
 };
 
-// THE MITE (a tiny reader) --------------------------------------------------------------------------
-const MT = { body: "#b5472c", dark: "#7a2c1c", pale: "#e8c090", leg: "#8a3a24", eye: "#1a0c0a" };
-export const MITE_MODEL: Model = {
+// BEETLE ---------------------------------------------------------------------------------------------
+const BT = { shell: "#24424a", shell2: "#2f5a62", dark: "#12262a", leg: "#1a2e30", pale: "#8ab0b0" };
+export const BEETLE_MODEL: Model = {
   level: true,
-  stance: 0.9,
+  stance: 1.2,
+  tubes: [],
+  atts: [
+    { kind: "blob", d: 0, at: [1, 0.1, 0], size: [5.4, 4.4, 5.6], col: BT.dark, frame: "head" },
+    { kind: "blob", d: 0, at: [2.2, 1.4, 2.4], size: [1.4, 1.6, 1.6], col: "#0a0a0a", frame: "head", mirror: true, lo: true },
+    { kind: "cone", d: 0, at: [3.4, -0.8, 1], size: [1, 1, 3], rot: [0, -0.5, 0], col: BT.leg, frame: "head", mirror: true, lo: true, anim: "mandible" },
+    { kind: "stick", d: 0, at: [3, 1.2, 1], to: [5.6, 2.4, 1.6], size: [0.5, 0.45, 0], col: BT.leg, frame: "head", mirror: true },
+    { kind: "blob", d: 0, at: [6, 2.5, 1.7], size: [1.4, 1.4, 1.4], col: BT.shell2, frame: "head", mirror: true, anim: "antenna" },
+    { kind: "blob", d: 8, at: [0.4, 1.8, 0], size: [5.6, 4.6, 8.4], col: BT.dark },
+    // the shell: a domed wing case with a light seam down the middle
+    { kind: "blob", d: 16.5, at: [0, 3.4, 0], size: [13.4, 7.6, 18.6], col: BT.shell },
+    { kind: "blob", d: 16.5, at: [0, 3.9, 3.4], size: [8, 5.4, 15], col: BT.shell2, mirror: true, lo: true },
+    { kind: "blob", d: 17, at: [0, 7, 0], size: [0.9, 0.7, 14], col: BT.pale, lo: true },
+  ],
+  legs: () => ({ len: 1.75, bend: [0, 1, 0.55], th: [0.95, 0.75, 0.5], ankle: 1.5, col: BT.leg, joint: BT.leg }),
+  head: { look: 0.4, nod: 0.1, bob: 0.1 },
+  breathe: 0,
+};
+
+// CONSTRICTOR (Würgeschlange): the snake's build, olive with dark saddles ----------------------------
+const CN = { base: "#8a8044", dark: "#3a2c14", belly: "#e0d6a4", head: "#7a7038" };
+export const CONSTRICTOR_MODEL: Model = {
+  ...SNAKE_MODEL,
   tubes: [{
-    d0: 4, d1: 17, step: 2.5, voxStep: 4.2, sides: 8, prof: ovoid(4, 17, 5.2, 4.6, 0.8),
-    color: (c) => (c.phi > 2.0 ? MT.dark : c.i % 4 === 1 ? MT.pale : MT.body),
+    ...SNAKE_MODEL.tubes[0],
+    color: (c) => {
+      if (c.phi > 2.1) return CN.belly;
+      const k = c.i % 9;
+      if (c.phi < 1.3 && k < 4) return CN.dark; // dorsal saddles
+      if (c.phi >= 1.3 && k === 5) return mix(CN.dark, CN.base, 0.5); // flank blotches
+      return c.phi > 1.7 ? mix(CN.base, CN.belly, 0.35) : CN.base;
+    },
+  }],
+  atts: SNAKE_MODEL.atts.map((a) => (a.col === SN.head ? { ...a, col: CN.head } : a)),
+};
+
+// EAGLE ----------------------------------------------------------------------------------------------
+const EG = { brown: "#5a3c24", deep: "#3e2814", white: "#f2eee6", cream: "#e8dcc0", beak: "#e8b830" };
+export const EAGLE_MODEL: Model = {
+  ...BLUEJAY_MODEL,
+  tubes: [{
+    ...BLUEJAY_MODEL.tubes[0],
+    color: (c) => {
+      if (c.d > 46) return EG.white; // white tail
+      if (c.d < 10 || (c.phi > 1.6 && c.d < 30)) return c.d < 10 ? EG.white : EG.cream; // white head, pale breast
+      return c.phi < 0.6 ? EG.deep : EG.brown;
+    },
   }],
   atts: [
-    { kind: "blob", d: 0, at: [1, 0.6, 0], size: [4.4, 3.8, 4], col: MT.body, shade: 1.1, frame: "head" },
-    { kind: "blob", d: 0, at: [2.4, 1.9, 1.2], size: [1.2, 1.2, 1.2], col: MT.eye, frame: "head", mirror: true, lo: true },
-    { kind: "stick", d: 0, at: [2.6, 0.6, 1.1], to: [5, 0, 1.6], size: [0.5, 0.35, 0], col: MT.leg, frame: "head", mirror: true },
+    { kind: "blob", d: 0, at: [1, 0.8, 0], size: [9.8, 9.2, 10.6], col: EG.white, frame: "head" },
+    { kind: "cone", d: 0, at: [4.8, -0.6, 0], size: [3.8, 4.6, 8.4], rot: [0, 0, -0.18], col: EG.beak, frame: "head" }, // the hooked beak
+    { kind: "cone", d: 0, at: [8.4, -2.2, 0], size: [1.6, 2.2, 2.6], rot: [0, 0, -0.9], col: "#c89a20", frame: "head", lo: true },
+    { kind: "blob", d: 0, at: [2.6, 1.9, 4], size: [2, 2.2, 2.2], col: "#2a1a08", frame: "head", mirror: true, lo: true, anim: "blink" },
+    { kind: "blob", d: 0, at: [2.4, 3.2, 4], size: [2.6, 1, 2.6], col: EG.cream, frame: "head", mirror: true, lo: true }, // the brow
+    { kind: "plate", d: 44, at: [0, 0.4, 0], size: [34, 1, 11], rot: [-0.06, Math.PI / 2, 0], col: EG.white, plate: "jayTail", alpha: 1 },
   ],
-  legs: () => ({ len: 1.5, bend: [0, 1, 0.5], th: [1.1, 0.85, 0.55], split: 0.5, ankle: 1.8, col: MT.leg, joint: MT.dark }),
-  head: { look: 0.4, nod: 0.08, bob: 0.05 },
-  breathe: 0.02,
+  legs: () => ({
+    len: 1.5, bend: [0.9, 0.3, 0.1], th: [1.8, 1.4], col: EG.beak, joint: EG.beak, hipOut: 0.8, hide: "flight",
+    paw: { size: [3, 1.4, 3.6], col: EG.beak, toes: { n: 3, len: 4.4, th: 1.2, spread: 0.55, col: "#3a3a3a" } },
+  }),
+  wings: {
+    ...BLUEJAY_MODEL.wings!,
+    at: [1, 3.8, 3.8],
+    panels: [{ len: 23, chord: 15, shape: "jayArm" }, { len: 25, chord: 13, shape: "jayHand" }],
+  },
+  head: { look: 0.5, nod: 0.14, bob: 0.08 },
 };
 
 export const MODELS: Record<string, Model> = {
@@ -632,6 +685,8 @@ export const MODELS: Record<string, Model> = {
   bee: BEE_MODEL,
   dragonfly: DRAGONFLY_MODEL,
   bluejay: BLUEJAY_MODEL,
-  mite: MITE_MODEL,
+  beetle: BEETLE_MODEL,
+  constrictor: CONSTRICTOR_MODEL,
+  eagle: EAGLE_MODEL,
 };
 

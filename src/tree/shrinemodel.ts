@@ -97,8 +97,21 @@ export function buildShrine(shrine: Shrine): THREE.Group {
     box(soup, slit.x, gy + H - 1, slit.z, hw * 0.7, 1.6 * kd, 4 * kd, rot, GLOW);
   }
 
-  // the altar: a flat stone slab on a short block against the trunk's foot
-  {
+  // the altar: with a porch it stands in the nest at the porch's tip; without one, a flat stone slab on a short block against the trunk's foot
+  if (shrine.nest) {
+    const n = shrine.nest;
+    // the nest: a ring of woven twigs round a flat bed of moss, and the altar slab in the middle
+    const NT = 14;
+    for (let i = 0; i < NT; i++) {
+      const a = (i / NT) * Math.PI * 2;
+      const rr = 48 + (hash(i * 3.7) - 0.5) * 8;
+      box(soup, n.x + Math.cos(a) * rr, n.y + 7 + (i % 2) * 3, n.z + Math.sin(a) * rr, 24, 2.6, 3.4, a + Math.PI / 2 + (hash(i) - 0.5) * 0.5, i % 3 === 0 ? WOOD_DARK : WOOD);
+    }
+    prism(soup, n.x, n.y - 4, n.z, 44, 42, 9, 9, 0.2, MOSS, 31);
+    box(soup, n.x, n.y + 10, n.z, 11, 7, 13, 0.4, STONE_DARK);
+    box(soup, n.x, n.y + 19, n.z, 15, 2.5, 18, 0.4, STONE);
+    box(soup, n.x, n.y + 23.5, n.z, 3, 2, 3, 0.4, GLOW);
+  } else {
     const az = shrine.altarAz;
     const rad = { x: Math.cos(az), z: Math.sin(az) };
     const R = shrine.stumpR + 16 * kd;
@@ -109,16 +122,18 @@ export function buildShrine(shrine: Shrine): THREE.Group {
     box(soup, x, gy + 24 * kd, z, 3 * kd, 2 * kd, 3 * kd, rot, GLOW);
   }
 
-  // the lantern post that carries the wisp
+  // the wisp's perch: an iron cradle at the tip of its branch (or on top of a lantern post at the foot when it has no branch)
   {
-    const { base, top } = shrine.post;
-    prism(soup, base.x, gy - 3, base.z, 7 * kd, 4.5 * kd, top.y - gy + 3, 6, 0.4, STONE_DARK, 77);
-    // an iron cradle: four stakes round the perch and a ring
+    const cx = shrine.post ? shrine.post.top.x : shrine.perch.x;
+    const cz = shrine.post ? shrine.post.top.z : shrine.perch.z;
+    const cy = shrine.post ? shrine.post.top.y : shrine.perch.y - 50 * kd;
+    if (shrine.post) prism(soup, shrine.post.base.x, gy - 3, shrine.post.base.z, 7 * kd, 4.5 * kd, shrine.post.top.y - gy + 3, 6, 0.4, STONE_DARK, 77);
+    // four stakes round the perch and a ring
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-      box(soup, top.x + Math.cos(a) * 7 * kd, top.y + 6 * kd, top.z + Math.sin(a) * 7 * kd, 1.1 * kd, 6 * kd, 1.1 * kd, 0, IRON);
+      box(soup, cx + Math.cos(a) * 7 * kd, cy + 6 * kd, cz + Math.sin(a) * 7 * kd, 1.1 * kd, 6 * kd, 1.1 * kd, 0, IRON);
     }
-    box(soup, top.x, top.y + 1.5 * kd, top.z, 8.5 * kd, 1.2 * kd, 8.5 * kd, 0, IRON);
+    box(soup, cx, cy + 1.5 * kd, cz, 8.5 * kd, 1.2 * kd, 8.5 * kd, 0, IRON);
   }
 
   // the crown: a lantern-fruit hanging at the tip of every place limb (a glowing seed in an iron cage), so the limb ends are easy to find

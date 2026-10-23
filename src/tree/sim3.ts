@@ -202,7 +202,10 @@ export const SNAKE: Animal = {
   leap: null, reach: { speed: 170, max: 430 }, bodyGrip: true,
 };
 
-/** Smaller than a spider and built for twigs: scaled() down in ANIMALS. */
+/**
+ * The ANT is the smallest animal (scaled() to a few px in ANIMALS) and the READER: with the ant selected and a leaf within reach, E (or choosing the ant
+ * next to a leaf) opens the LEAF VIEW (ui/LeafView.tsx: the note's text on a magnified leaf); choosing any other animal climbs back out of it.
+ */
 export const ANT: Animal = {
   id: "ant", name: "Ant",
   nodes: [{ d: 0, w: 3.2 }, { d: 7, w: 2.2 }, { d: 14, w: 3.6 }, { d: 23, w: 4.4 }],
@@ -215,22 +218,25 @@ export const ANT: Animal = {
   leap: null, reach: { speed: 130, max: 130 },
 };
 
-/**
- * The MITE: the smallest and slowest animal (scaled() to a few px in ANIMALS). Eight legs, clings to anything. It walks the tree like any
- * crawler, but its job is READING: with the mite selected and a leaf within reach, E (or choosing the mite next to a leaf) opens the
- * LEAF VIEW (ui/LeafView.tsx: the note's text on a magnified leaf); choosing any other animal climbs back out of it.
- */
-export const MITE: Animal = {
-  id: "mite", name: "Mite",
-  nodes: [{ d: 0, w: 2.8 }, { d: 5, w: 4.2 }, { d: 11, w: 5.4 }, { d: 16, w: 4.2 }],
+/** A beetle: the size the ant used to be (about 13 px), a hard round shell, six legs, no reach, no jump; grips like any walker. scaled() in ANIMALS. */
+export const BEETLE: Animal = {
+  id: "beetle", name: "Beetle",
+  nodes: [{ d: 0, w: 3.4 }, { d: 8, w: 5.4 }, { d: 17, w: 7 }, { d: 24, w: 5.4 }],
   legs: [
-    { node: 1, side: 1, group: 0, lead: 4 }, { node: 1, side: -1, group: 1, lead: 4 },
-    { node: 1, side: 1, group: 1, lead: 1 }, { node: 1, side: -1, group: 0, lead: 1 },
-    { node: 2, side: 1, group: 0, lead: -2 }, { node: 2, side: -1, group: 1, lead: -2 },
-    { node: 2, side: 1, group: 1, lead: -5 }, { node: 2, side: -1, group: 0, lead: -5 },
+    { node: 1, side: 1, group: 0, lead: 3 }, { node: 1, side: -1, group: 1, lead: 3 },
+    { node: 1, side: 1, group: 1, lead: -1 }, { node: 1, side: -1, group: 0, lead: -1 },
+    { node: 2, side: 1, group: 0, lead: -3 }, { node: 2, side: -1, group: 1, lead: -3 },
   ],
-  speed: 34, turnRate: 3.5, stride: 6, splay: 9, stepTime: 0.08, body: "#b5472c", belly: "#e8c090", scale: 1,
-  leap: null, clings: true,
+  speed: 76, turnRate: 2.8, stride: 10, splay: 10, stepTime: 0.075, body: "#24424a", belly: "#4e6e72", scale: 1,
+  leap: null,
+};
+
+/** A constrictor (a Würgeschlange): the snake, much longer and thicker, with a longer reach. */
+export const CONSTRICTOR: Animal = {
+  ...SNAKE,
+  id: "constrictor", name: "Constrictor",
+  nodes: taper(64, 0, 10, 9, 2),
+  body: "#6a6a3a", belly: "#d8cc98",
 };
 
 /** Eight legs, high knees; clings to anything (no grip loss). */
@@ -317,6 +323,16 @@ export const BLUEJAY: Animal = {
   wings: { pairs: 1, node: 2, span: 56, chord: 26, color: "#2f5fb8", alpha: 1, flapHz: 5 },
 };
 
+/** A big, fast eagle: the jay's flight with more of everything (wings, speed, turning radius). */
+export const EAGLE: Animal = {
+  ...BLUEJAY,
+  id: "eagle", name: "Eagle",
+  speed: 180, turnRate: 2.2, body: "#5a3c24", belly: "#e8e0d0",
+  colors: ["#f2eee6", "#e8e0d0", "#5a3c24", "#5a3c24", "#4a3018", "#4a3018", "#4a3018", "#f2eee6", "#f2eee6"],
+  flight: { kind: "wing", speed: 900, accel: 340, turnRate: 1.3, climb: 1.0, cruise: 560, stall: 230, autoLand: false, bob: 0 },
+  wings: { pairs: 1, node: 2, span: 80, chord: 34, color: "#4a3018", alpha: 1, flapHz: 3.6 },
+};
+
 /** Uniformly resize a creature spec (body, legs, gait and speed). */
 export function scaled(a: Animal, k: number): Animal {
   return {
@@ -333,15 +349,16 @@ export function scaled(a: Animal, k: number): Animal {
 }
 
 export const ANIMALS: Animal[] = [
-  scaled(LIZARD, 1.5), scaled(SNAKE, 1.5), scaled(ANT, 0.55), scaled(CAT, 1.9), scaled(SQUIRREL, 1.7),
-  scaled(SPIDER, 1.6), scaled(BEE, 1.1), scaled(DRAGONFLY, 1.1), scaled(BLUEJAY, 1.6), scaled(JUMPER, 1.12), scaled(MITE, 0.55),
+  scaled(LIZARD, 1.5), scaled(SNAKE, 1.5), scaled(ANT, 0.38), scaled(CAT, 1.9), scaled(SQUIRREL, 1.7),
+  scaled(SPIDER, 1.6), scaled(BEE, 1.1), scaled(DRAGONFLY, 1.1), scaled(BLUEJAY, 1.6), scaled(JUMPER, 1.12), scaled(BEETLE, 0.55), scaled(CONSTRICTOR, 3), scaled(EAGLE, 2.6),
 ];
 
-/** The number keys: 1/2/3 pick a category, pressing the same key again cycles through its animals. */
+/** The number keys: 1-4 pick a category, pressing the same key again cycles through its animals. */
 export const ANIMAL_CATEGORIES: ReadonlyArray<{ label: string; ids: readonly string[] }> = [
-  { label: "Crawlers", ids: ["ant", "spider", "jumper", "snake", "mite"] },
+  { label: "Reader", ids: ["ant"] },
+  { label: "Crawlers", ids: ["beetle", "spider", "jumper", "snake", "constrictor"] },
   { label: "Walkers", ids: ["lizard", "cat"] },
-  { label: "Fliers", ids: ["squirrel", "bee", "dragonfly", "bluejay"] },
+  { label: "Fliers", ids: ["squirrel", "bee", "dragonfly", "bluejay", "eagle"] },
 ];
 
 /** Index in ANIMALS of the animal the number key `n` (1-based) selects, given the current one: next in the category, else its first. */
@@ -753,6 +770,7 @@ function steerGuided(world: World, c: Creature, input: Input, dt: number, fit: n
 
 /** Advance the creature by dt seconds. */
 export function step(world: World, c: Creature, input: Input, dt: number): void {
+  if (!(dt >= 0)) dt = 0; // a negative / NaN step (a clock hiccup on the first frame) would run the simulation backwards: grip refills become drains
   c.time += dt;
   if (c.threadCool) c.threadCool = Math.max(0, c.threadCool - dt);
   c.climbHeld = input.climb;
@@ -1055,7 +1073,11 @@ function moveHead(world: World, c: Creature, dS: number, dW: number, travelled: 
     }
     else if (parent) {
       c.noAuto = b.silk ? undefined : b.id; // we just came down out of this branch's base (a ground root: up onto the stump): do not walk straight back in
-      transfer(parent, (b.attachS ?? parent.total) + s);
+      if (b.root && !parent.root && !parent.silk) {
+        // in along a ground root onto the trunk: step onto the bark where the root meets it (the root's first point is ON the trunk's surface), facing up
+        transfer(parent, clamp(b.attachS ?? 0, 0, parent.total), b.pts[0]);
+        c.phi = 0;
+      } else transfer(parent, (b.attachS ?? parent.total) + s);
     } else {
       used = dS < 0 ? clamp(c.head.s / -dS, 0, 1) : 0; // (same as at a tip: only the distance really walked counts)
       s = 0; // the foot of a stump (no parent): the star junction still applies right at the bottom
@@ -1491,6 +1513,8 @@ function land(world: World, c: Creature, b: Branch, s: number, p: V3, v: V3): vo
 const MAX_PITCH = (55 * Math.PI) / 180;
 /** Wing flier energy model: speed gain per unit of -sin(pitch), and drag pulling the speed back to cruise (1/s). */
 const WING_DRAG = 0.35;
+/** The top speed of a skydive (looking steeply down with W held in the mouse camera) as a multiple of the flier's normal top speed. */
+export const SKYDIVE = 1.7;
 /** Keeps fliers this far above the ground. */
 const FLOOR_CLEARANCE = 15;
 /** Landing magnet reach (px). */
@@ -1589,18 +1613,21 @@ function flightSub(world: World, c: Creature, input: Input, dt: number): void {
   const fl = c.animal.flight!;
   f.t += dt;
   let turn = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-  // the mouse camera steers: the heading turns towards where the camera looks (A/D still win while pressed)
+  // THE MOUSE CAMERA FLIES: the heading turns towards where the camera looks, A/D STRAFE (they no longer turn), W is the throttle (faster), S slows down,
+  // and looking steeply down while holding W is a SKYDIVE (a higher top speed that bleeds away once the nose comes up or W is let go)
   const look = input.aimDir;
-  if (look && turn === 0 && Math.hypot(look.x, look.z) > 1e-3) turn = clamp(wrapAngle(Math.atan2(look.z, look.x) - f.yaw) * 3, -1, 1);
+  if (look) turn = Math.hypot(look.x, look.z) > 1e-3 ? clamp(wrapAngle(Math.atan2(look.z, look.x) - f.yaw) * 3, -1, 1) : 0;
+  const strafe = look ? (input.right ? 1 : 0) - (input.left ? 1 : 0) : 0;
+  const rightV = v3(-Math.sin(f.yaw), 0, Math.cos(f.yaw));
 
   if (fl.kind === "hover") {
     // fly where you point: W forward, S back (half speed), A/D yaw, Space up, Shift down; velocity eases to the input
     f.yaw = wrapAngle(f.yaw + turn * fl.turnRate * dt);
-    const along = (input.forward ? 1 : 0) - (input.back ? 0.5 : 0);
+    const along = look ? (input.forward ? 1 : 0) : (input.forward ? 1 : 0) - (input.back ? 0.5 : 0); // (mouse camera: S just stops)
     const vert = (input.reach ? 1 : 0) - (input.climb ? 1 : 0);
     const lift = look ? clamp(look.y, -0.9, 0.9) : 0; // looking up / down: W flies up / down too
     const flat = Math.sqrt(1 - lift * lift);
-    const goal = v3(Math.cos(f.yaw) * along * fl.speed * flat, vert * fl.climb + along * lift * fl.speed, Math.sin(f.yaw) * along * fl.speed * flat);
+    const goal = v3(Math.cos(f.yaw) * along * fl.speed * flat + rightV.x * strafe * fl.speed * 0.7, vert * fl.climb + along * lift * fl.speed, Math.sin(f.yaw) * along * fl.speed * flat + rightV.z * strafe * fl.speed * 0.7);
     const k = Math.min(1, fl.accel * dt);
     f.v = add(f.v, mul(sub(goal, f.v), k));
     f.speed = len(f.v);
@@ -1612,8 +1639,8 @@ function flightSub(world: World, c: Creature, input: Input, dt: number): void {
     // Shift = LANDING MODE: flare to 1.15 x stall, level out, and let a magnet steer toward the best branch ahead.
     const cruise = wingCruise(fl), stall = wingStall(fl);
     const K = 0.9 * (cruise - stall);
-    let pitchIn = (input.back ? 1 : 0) - (input.forward ? 1 : 0); // S climbs, W dives
-    if (look && pitchIn === 0 && !input.climb) pitchIn = clamp((Math.asin(clamp(look.y, -1, 1)) - f.pitch) * 3, -1, 1); // the camera's elevation
+    let pitchIn = look ? 0 : (input.back ? 1 : 0) - (input.forward ? 1 : 0); // S climbs, W dives (mouse camera: the pitch follows the camera instead)
+    if (look && !input.climb) pitchIn = clamp((Math.asin(clamp(look.y, -1, 1)) - f.pitch) * 3, -1, 1); // the camera's elevation
     const flapping = input.reach || input.leap;
     const landing = input.climb;
     const tgt = landing ? pickLandTarget(world, f) : null;
@@ -1630,10 +1657,18 @@ function flightSub(world: World, c: Creature, input: Input, dt: number): void {
       if (f.speed < stall) f.pitch -= fl.climb * 1.5 * dt;
       else if (pitchIn !== 0) f.pitch += pitchIn * fl.climb * dt;
       else f.pitch += (-0.02 - f.pitch) * Math.min(1, dt * fl.climb * 0.9); // let go: settle into a level glide
-      f.pitch = clamp(f.pitch, -MAX_PITCH, MAX_PITCH);
-      let ds = -Math.sin(f.pitch) * K - WING_DRAG * (f.speed - cruise);
+      f.pitch = clamp(f.pitch, look ? -1.35 : -MAX_PITCH, MAX_PITCH);
+      let ds: number;
+      let cap = fl.speed;
+      if (look) {
+        const target = input.forward ? fl.speed * 0.92 : input.back ? stall * 1.12 : cruise; // W = throttle, S = slow
+        const dive = input.forward && f.pitch < -0.5; // skydive
+        if (dive) cap = fl.speed * SKYDIVE;
+        ds = -Math.sin(f.pitch) * K * (dive ? 2 : 1) - WING_DRAG * (f.speed - target) * (f.speed > target && !dive ? 1.6 : 1);
+        if (!dive && f.speed > fl.speed) ds -= (f.speed - fl.speed) * 1.4; // the skydive speed bleeds away
+      } else ds = -Math.sin(f.pitch) * K - WING_DRAG * (f.speed - cruise);
       if (flapping) ds += fl.accel;
-      f.speed = clamp(f.speed + ds * dt, stall * 0.3, fl.speed);
+      f.speed = clamp(f.speed + ds * dt, stall * 0.3, cap);
     }
     const scale = clamp(cruise / Math.max(f.speed, 1), 0.45, 1.25); // fast = wide turns
     let yawRate = turn * fl.turnRate * scale;
@@ -1645,6 +1680,10 @@ function flightSub(world: World, c: Creature, input: Input, dt: number): void {
     f.yaw = wrapAngle(f.yaw + yawRate * dt);
     f.bank += (clamp(yawRate / fl.turnRate, -1, 1) - f.bank) * Math.min(1, dt * 5);
     f.v = mul(dirOf(f.yaw, f.pitch), f.speed);
+    if (strafe !== 0) {
+      f.v = add(f.v, mul(rightV, strafe * fl.speed * 0.45)); // A / D slide sideways (mouse camera)
+      f.bank += (strafe * 0.6 - f.bank) * Math.min(1, dt * 4);
+    }
     if (flapping) f.v = { ...f.v, y: f.v.y + fl.accel * 0.2 };
     f.flap += ((flapping ? 1 : f.speed < stall ? 0.8 : 0.2) - f.flap) * Math.min(1, dt * 8);
   }

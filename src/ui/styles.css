@@ -720,7 +720,7 @@ button.active {
 .shrine-row button.active { background: #5a3e24; border-color: #d8b868; }
 .tree-pad { color: #ffe9a8; }
 
-/* Leaf view (the mite's reader) -------------------------------------------- */
+/* Leaf view (the ant's reader) -------------------------------------------- */
 .leaf-view { position: fixed; inset: 0; z-index: 40; background: #090c12; }
 .leaf-view canvas { display: block; }
 .leaf-actions { position: absolute; right: 14px; top: 10px; display: flex; gap: 8px; }

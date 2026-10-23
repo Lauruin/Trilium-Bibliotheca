@@ -10,7 +10,7 @@ export default async ({ bundle, assert }) => {
   const A = (id) => S.ANIMALS.find((a) => a.id === id);
   const DT = 1 / 60;
   const idle = S.NO_INPUT;
-  const WALKERS = ["lizard", "cat", "squirrel", "ant", "spider", "jumper", "snake", "mite"];
+  const WALKERS = ["lizard", "cat", "squirrel", "ant", "spider", "jumper", "snake", "beetle", "constrictor"];
   const ALL = S.ANIMALS.map((a) => a.id);
   const W_ = { forward: true }, S_ = { back: true }, A_ = { left: true }, D_ = { right: true };
   const run = (w, c, keys, secs, each) => {
@@ -360,7 +360,7 @@ export default async ({ bundle, assert }) => {
     for (const id of ["lizard", "snake", "ant", "spider", "squirrel"]) {
       const w = demo;
       const c = guided(w, id, "trunk", 1850);
-      run(w, c, W_, 6);
+      run(w, c, W_, id === "ant" ? 14 : 6); // (the ant is tiny and slow)
       assert.ok(c.head.b === "up" || c.head.b === "down", `${id}: W past the end of the log continues onto a fork (${c.head.b})`);
       const fork = c.head.b;
       assert.ok(Math.abs(c.phi) < 1.0, `${id}: heading on the fork is tip-ward-ish (${c.phi.toFixed(2)})`);

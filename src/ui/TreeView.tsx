@@ -22,6 +22,7 @@ import { journal, undoEdit } from "../lib/worldedit";
 import { getClient, getState, notify, useAppStore } from "../state/store";
 import type { LibraryTree } from "../types";
 import { dirty, loadNow, saveNow, setSyncOn, syncOn } from "../state/savestore";
+import { inspectYggdrasil } from "../lib/yggdrasil";
 import { setTreeBridge } from "../tree/bridge";
 import { CLOCK_MODES, FAST_MINUTES, hhmm, type ClockMode } from "../tree/clock";
 import { PLACES, placeOf } from "../tree/places";
@@ -70,17 +71,28 @@ export function TreeView(props: {
   const [busy, setBusy] = useState(false);
   /** The shrine panel (E at the altar). */
   const [shrineOpen, setShrineOpen] = useState(false);
-  /** The leaf view (the mite's reader): the leaf being read, or null. */
+  /** The leaf view (the ant's reader): the leaf being read, or null. */
   const [leafView, setLeafView] = useState<LeafViewNote | null>(null);
   /** Short plain-text excerpts of the notes (hover preview), filled by the background loader. */
   const [excerpts, setExcerpts] = useState<ReadonlyMap<string, string>>(new Map());
   /** Saving progress + settings in Trilium (off by default; the shrine's Save section). */
   const [sync, setSync] = useState({ on: syncOn(), busy: false, msg: "" });
+  /** How many EXTRA Yggdrasil folders / save notes carry the labels (a warning in the save section; read when the shrine opens with saving on). */
+  const [extras, setExtras] = useState(0);
+  useEffect(() => {
+    const client = getClient();
+    if (!shrineOpen || !sync.on || !client) return;
+    let alive = true;
+    void inspectYggdrasil(client).then((i) => alive && setExtras(i.extraFolders + i.extraSaves), () => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [shrineOpen, sync.on]);
   const deferredPending = useDeferredValue(pending);
   /** forest (every top-level folder its own tree, joined by ground roots) or hub (the original); key Y, remembered. */
   const [mode, setMode] = useState<LayoutMode>(loadLayoutMode);
   const layout = useMemo(
-    () => (tree ? layoutTree(tree, { mode, places: PLACES, overrides: editId && Object.keys(deferredPending).length > 0 ? new Map([[editId, deferredPending]]) : undefined }) : null),
+    () => (tree ? layoutTree(tree, { mode, places: PLACES, crown: true, overrides: editId && Object.keys(deferredPending).length > 0 ? new Map([[editId, deferredPending]]) : undefined }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tree, version, editId, deferredPending, mode],
   );
@@ -128,11 +140,11 @@ export function TreeView(props: {
       if (!n) return;
       setLeafView({ id: n.noteId, title: n.title, type: n.type, color: leaf.color, learn: n.learn, noai: n.noai });
     };
-    scene.onInteract = (leaf) => (scene.creature.animal.id === "mite" ? openLeaf(leaf) : openRef.current(leaf.id)); // the mite reads ON the leaf
+    scene.onInteract = (leaf) => (scene.creature.animal.id === "ant" ? openLeaf(leaf) : openRef.current(leaf.id)); // the mite reads ON the leaf
     scene.onAnimal = (a) => {
-      if (a.id !== "mite") return;
+      if (a.id !== "ant") return;
       const near = scene.nearestLeaf(140);
-      if (near) openLeaf(near); // choosing the mite next to a leaf walks onto it
+      if (near) openLeaf(near); // choosing the ant next to a leaf walks onto it
     };
     scene.setShrine(true);
     scene.moveToShrine(); // you start (and arrive back from the library) at the shrine's door
@@ -407,6 +419,11 @@ export function TreeView(props: {
             save progress and settings in Trilium
           </label>
           {readOnlyHost && <p>This server is read-only: nothing can be saved to it.</p>}
+          {extras > 0 && (
+            <p data-testid="sync-extras">
+              {extras} more note{extras === 1 ? "" : "s"} carr{extras === 1 ? "ies" : "y"} the label biblio_yggdrasil / biblio_save: the oldest folder (and the save inside it) is used, the others are left alone.
+            </p>
+          )}
           <div className="shrine-row">
             <button disabled={!sync.on || sync.busy || readOnlyHost} onClick={() => void doSave()}>
               save now
@@ -532,7 +549,7 @@ export function TreeView(props: {
               {hud.climb && hud.nearLeaf && " · "}
               {hud.nearLeaf && (
                 <span>
-                  <b>E</b> {hud.animalId === "mite" ? "read on the leaf" : "read"} “{hud.nearLeaf.title}”
+                  <b>E</b> {hud.animalId === "ant" ? "read on the leaf" : "read"} “{hud.nearLeaf.title}”
                   {excerpts.get(hud.nearLeaf.id) && <span className="tree-excerpt">{excerpts.get(hud.nearLeaf.id)}</span>}
                 </span>
               )}

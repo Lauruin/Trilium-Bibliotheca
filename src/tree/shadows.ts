@@ -223,9 +223,19 @@ export class SunShadows {
     const sh = this.light.shadow;
     if (this.q !== "off") {
       sh.intensity = 0.92 * this.strength;
-      sh.autoUpdate = this.active; // (the light keeps casting: toggling castShadow would recompile every program; a frozen map costs nothing)
+      this.syncUpdate(); // (the light keeps casting: toggling castShadow would recompile every program; a frozen map costs nothing)
     }
     return was !== this.active;
+  }
+
+  /**
+   * Re-render the map every frame while the sun casts; otherwise freeze it. A frozen map that was never rendered does not EXIST, yet every lit material
+   * samples it: the driver then rejects each draw ("texture format and sampler type mismatch": a blank screen). So a missing map is rendered once.
+   */
+  private syncUpdate(): void {
+    const sh = this.light.shadow;
+    sh.autoUpdate = this.active;
+    if (!this.active && !sh.map) sh.needsUpdate = true;
   }
 
   /** Change the quality; returns true when the shadow pass was switched on/off (materials must be refreshed by the caller). */
@@ -245,7 +255,7 @@ export class SunShadows {
       }
       sh.radius = t.radius;
       sh.intensity = 0.92 * this.strength;
-      sh.autoUpdate = this.active;
+      this.syncUpdate();
     } else {
       sh.map?.dispose();
       sh.map = null;

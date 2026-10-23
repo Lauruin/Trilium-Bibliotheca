@@ -144,6 +144,15 @@ export default async ({ bundle, assert }) => {
       c.phi = Math.PI;
       for (let i = 0; i < 60 * 30 && c.head.b !== "root"; i++) S.step(w, c, { ...S.NO_INPUT, back: true }, DT);
       assert.equal(c.head.b, "root", "from the root onto the stump");
+      {
+        // it steps ONTO the bark where the root meets it (a fat trunk: no walking through the wood), on the side of that root, facing up
+        const st = w.branches.get("root");
+        const p = W.surfacePoint(st, c.head.s, c.head.th).p;
+        const fr = W.frameAt(st, c.head.s);
+        assert.ok(Math.abs(Math.hypot(p.x - fr.p.x, p.z - fr.p.z) - st.r) < 3, "on the trunk's surface");
+        assert.ok(Math.abs(W.wrapAngle(c.head.th - rootTh("root:F1"))) < 0.6, `on the side of the root it came along (th ${c.head.th.toFixed(2)} vs ${rootTh("root:F1").toFixed(2)})`);
+        assert.ok(Math.abs(c.phi) < 0.2, "facing up the trunk");
+      }
       for (let i = 0; i < 20; i++) S.step(w, c, { ...S.NO_INPUT, back: true }, DT);
       assert.equal(c.head.b, "root", "pressing S at once does not walk back into the root it came up");
       // (holding S on: the animal U-turns and, facing down, takes the root on the side it then faces: back into the one it came from is fine)
@@ -263,5 +272,69 @@ export default async ({ bundle, assert }) => {
     assert.ok(hub.world.branches.get("root").total < 1000, "hub mode: the old short stump");
     const hubShrine = SH.shrineOf(hub.world, "root");
     assert.ok(hubShrine && hubShrine.k <= 2, "hub mode: a small foot");
+  }
+
+  // 5. the porch (spawn), the wisp's branch and the crown: low places near the foot, a real crown of limbs
+  {
+    const PL2 = PL;
+    const low = PL2.PLACES.filter((p) => p.slot === "low");
+    assert.deepEqual(low.map((p) => p.id), ["porch", "wisp"], "the registry has the porch and the wisp's branch as low places");
+    assert.equal(PL2.placeOf("altar")?.id, "porch");
+    assert.equal(PL2.placeOf("wisp")?.id, "wisp");
+    assert.equal(PL2.placeOf("place:porch")?.id, "porch");
+    const lay = L.layoutTree(mk(forest(7, 8)), { mode: "forest", places: [...PL2.PLACES, ...PL2.demoPlaces(3)], crown: true });
+    const w = lay.world;
+    const trunk = w.branches.get("root");
+    const porch = w.branches.get("place:porch"), wispB = w.branches.get("place:wisp");
+    assert.ok(porch && wispB && porch.place === "porch" && wispB.place === "wisp", "both low limbs exist");
+    assert.ok(porch.attachS >= L.LOW_FROM - 1 && wispB.attachS > porch.attachS && wispB.attachS < 600, `low on the trunk (${porch.attachS.toFixed(0)}, ${wispB.attachS.toFixed(0)} of ${trunk.total})`);
+    assert.ok(S.starTop(w, trunk) < porch.attachS - 20, `the roots' zones end below the porch (${S.starTop(w, trunk).toFixed(0)} < ${porch.attachS.toFixed(0)})`);
+    assert.ok(porch.total > 300 && porch.r >= 14, "a sturdy porch branch");
+    assert.ok(Math.abs(porch.T[porch.T.length - 1].y) < 0.6, "nearly horizontal at its tip");
+    const crown = [...w.branches.values()].filter((b) => b.id.startsWith("crown:"));
+    assert.ok(crown.length >= 20, `a real crown of limbs and twigs (${crown.length})`);
+    for (const b of crown) assert.ok(fin(b.r, b.rEnd, b.total) && b.total > 100 && b.pts.every((p) => fin(p.x, p.y, p.z) && p.y > 0) && !b.place, `${b.id}: a sound decorative limb`);
+    assert.ok(crown.some((b) => b.id === "crown:top0"), "a treetop");
+    assert.ok(Math.max(...crown.map((b) => Math.max(...b.pts.map((p) => p.y)))) > trunk.total * 0.95, "the crown reaches the top");
+    // without crown:true there are no decorative limbs (tests / hub)
+    assert.equal([...L.layoutTree(mk(forest(3)), { mode: "forest", places: PL2.PLACES }).world.branches.keys()].filter((k) => k.startsWith("crown:")).length, 0);
+    const sh = SH.shrineOf(w, "root", new Map(lay.places.map((p) => [p.branchId, p.title])));
+    assert.equal(sh.porch, "place:porch");
+    assert.equal(sh.wispBranch, "place:wisp");
+    assert.equal(sh.post, null, "no lantern post at the foot: the wisp has its own branch");
+    assert.ok(sh.nest && SH.arrival(sh).branch === "place:porch", "you start on the porch");
+    // the spawn is at the altar; the wisp pad is at its branch's tip; the door stays at the foot
+    const a = SH.arrival(sh);
+    const c0 = S.spawn(w, A("lizard"), a.branch, a.s, "guided", a.th);
+    const hp = W.surfacePoint(w.branches.get(a.branch), c0.head.s, c0.head.th).p;
+    assert.equal(SH.padNear(sh, hp)?.id, "altar", "the porch's nest is the altar");
+    // a negative or NaN step is a no-op, not a backwards simulation (the first frame's timestamp once gave dt = -1 s and drained the grip: the animal slipped off the porch)
+    for (const dt of [-1, NaN]) {
+      const cn = S.spawn(w, A("lizard"), a.branch, a.s, "guided", a.th);
+      S.step(w, cn, S.NO_INPUT, dt);
+      assert.ok(cn.grip === 1 && !cn.air && cn.head.b === "place:porch", `dt ${dt} changes nothing`);
+    }
+    // standing still on the porch for a while: it holds (grip stays full, still on the porch), also with big frame steps (a slow first frame)
+    for (const dt of [DT, 0.1, 0.5]) {
+      const cs = S.spawn(w, A("lizard"), a.branch, a.s, "guided", a.th);
+      for (let i = 0; i < Math.round(8 / dt); i++) S.step(w, cs, S.NO_INPUT, dt);
+      assert.ok(cs.head.b === "place:porch" && cs.grip > 0.99, `idle on the porch (dt ${dt}): ${cs.head.b} grip ${cs.grip}`);
+    }
+    for (const id of ["door", "altar", "wisp", "place:demo1"]) {
+      const st = SH.padStand(w, sh, id);
+      const cc = S.spawn(w, A("lizard"), st.branch, st.s, "guided", st.th);
+      const p = W.surfacePoint(w.branches.get(cc.head.b), cc.head.s, cc.head.th).p;
+      assert.equal(SH.padNear(sh, p)?.id, id, `standing at ${id}`);
+    }
+    assert.ok(sh.pads.filter((p) => p.id.startsWith("place:")).map((p) => p.id).join() === "place:demo0,place:demo1,place:demo2", "the porch and the wisp are not extra pads");
+    // walking: from the porch to the door at the foot, to the wisp's branch, and out to a crown limb
+    for (const [goalB, gs] of [["root", sh.footS], ["place:wisp", wispB.total * 0.9], ["place:demo1", w.branches.get("place:demo1").total * 0.9], ["crown:3.1", w.branches.get("crown:3.1").total * 0.7]]) {
+      const c = S.spawn(w, A("lizard"), a.branch, a.s, "guided", a.th);
+      c.gripOn = false;
+      const goal = { b: goalB, s: gs, th: goalB === "root" ? sh.doorTh : W.thetaOf(W.frameAt(w.branches.get(goalB), gs), { x: 0, y: 1, z: 0 }) };
+      const pil = new AP.Autopilot(goal);
+      for (let i = 0; i < 60 * 300 && pil.status === "walking"; i++) { const inp = pil.step(w, c, DT); if (pil.status !== "walking") break; S.step(w, c, inp, DT); }
+      assert.equal(pil.status, "arrived", `from the porch to ${goalB}: ${pil.reason} (on ${c.head.b} at ${c.head.s.toFixed(0)})`);
+    }
   }
 };

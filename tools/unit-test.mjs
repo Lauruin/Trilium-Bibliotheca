@@ -1294,7 +1294,7 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
     let lzSlipped = false;
     for (let i = 0; i < 60 * 4; i++) { S.step(hw, lz2, idle, 1 / 60); if (lz2.air && lz2.air.slip) lzSlipped = true; }
     assert.ok(lzSlipped, "lizard slips from the underside");
-    assert.deepEqual(S.ANIMALS.filter((x) => x.clings).map((x) => x.id).sort(), ["jumper", "mite", "spider"], "only the spiders and the mite cling");
+    assert.deepEqual(S.ANIMALS.filter((x) => x.clings).map((x) => x.id).sort(), ["jumper", "spider"], "only the spiders cling");
   }
 
   // --- auto-align + thin-branch steering ---
@@ -1367,10 +1367,11 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
     const pick = (n, id) => { const i = S.animalForKey(n, id); return i < 0 ? -1 : S.ANIMALS[i].id; };
     let id = "lizard";
     const seq = (n, ids) => { for (const want of ids) { id = pick(n, id); assert.equal(id, want, `key ${n}`); } };
-    seq(1, ["ant", "spider", "jumper", "snake", "mite", "ant"]);
-    id = "snake"; seq(2, ["lizard", "cat", "lizard"]);
-    id = "ant"; seq(3, ["squirrel", "bee", "dragonfly", "bluejay", "squirrel"]);
-    for (const n of [0, 4, 9, -1, 1.5, NaN]) assert.equal(S.animalForKey(n, "lizard"), -1, `invalid key ${n}`);
+    seq(1, ["ant", "ant"]);
+    seq(2, ["beetle", "spider", "jumper", "snake", "constrictor", "beetle"]);
+    id = "snake"; seq(3, ["lizard", "cat", "lizard"]);
+    id = "ant"; seq(4, ["squirrel", "bee", "dragonfly", "bluejay", "eagle", "squirrel"]);
+    for (const n of [0, 5, 9, -1, 1.5, NaN]) assert.equal(S.animalForKey(n, "lizard"), -1, `invalid key ${n}`);
     const ids = S.ANIMALS.map((x) => x.id);
     assert.equal(new Set(ids).size, ids.length, "animal ids are unique");
     assert.deepEqual(S.ANIMAL_CATEGORIES.flatMap((x) => x.ids).sort(), [...ids].sort(), "every animal is in exactly one category");
@@ -2187,8 +2188,8 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
     const ant = A("ant"), sp = A("spider"), ju = A("jumper"), sn = A("snake");
     assert.equal(S.ANIMALS[0].id, "lizard", "the lizard stays first");
     assert.equal(ant.leap, null);
-    assert.ok(ant.reach && Math.abs(ant.reach.max - 130 * 0.55) < 1e-9 && Math.abs(ant.reach.speed - 130 * 0.55) < 1e-9, "ant reach 130 x 0.55");
-    assert.ok(bodyLen(ant) < 14 && ant.reach.max / bodyLen(ant) > 5, "a 12 px ant reaches ~6 body lengths");
+    assert.ok(ant.reach && Math.abs(ant.reach.max - 130 * 0.38) < 1e-9 && Math.abs(ant.reach.speed - 130 * 0.38) < 1e-9, "ant reach 130 x 0.38");
+    assert.ok(bodyLen(ant) < 14 && ant.reach.max / bodyLen(ant) > 5, "a 9 px ant reaches ~5 body lengths");
     assert.equal(sp.leap, null);
     assert.ok(sp.silk && sp.clings && !sp.reach, "spider: silk, clings, no leap, no reach");
     assert.ok(sp.silk.maxLen > 1e8 && Math.abs(sp.silk.reel - 90 * 1.6) < 1e-9 && Math.abs(sp.silk.pump - 170 * 1.6) < 1e-9, "scaled() scales the silk spec");
@@ -2199,14 +2200,15 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
     assert.ok(bodyLen(ju) < bodyLen(sp) * 0.75 && bodyLen(ju) > bodyLen(sp) * 0.6, `jumper ~0.7 x spider (${(bodyLen(ju) / bodyLen(sp)).toFixed(2)})`);
     assert.deepEqual(S.ANIMALS.filter((x) => x.silk).map((x) => x.id).sort(), ["jumper", "spider"], "silk = the spiders");
     assert.deepEqual(S.ANIMALS.filter((x) => x.leap).map((x) => x.id).sort(), ["cat", "jumper", "lizard", "squirrel"], "leap = lizard, cat, squirrel, jumper");
-    assert.deepEqual(S.ANIMALS.filter((x) => x.reach).map((x) => x.id).sort(), ["ant", "snake"], "reach = ant, snake");
-    assert.deepEqual(S.ANIMAL_CATEGORIES.map((x) => x.ids), [["ant", "spider", "jumper", "snake", "mite"], ["lizard", "cat"], ["squirrel", "bee", "dragonfly", "bluejay"]]);
+    assert.deepEqual(S.ANIMALS.filter((x) => x.reach).map((x) => x.id).sort(), ["ant", "constrictor", "snake"], "reach = ant, snake, constrictor");
+    assert.deepEqual(S.ANIMAL_CATEGORIES.map((x) => x.ids), [["ant"], ["beetle", "spider", "jumper", "snake", "constrictor"], ["lizard", "cat"], ["squirrel", "bee", "dragonfly", "bluejay", "eagle"]]);
     const pick = (n, id) => S.ANIMALS[S.animalForKey(n, id)].id;
     let cur = "lizard";
-    assert.deepEqual([1, 2, 3, 4, 5, 6].map(() => (cur = pick(1, cur))), ["ant", "spider", "jumper", "snake", "mite", "ant"], "key 1 cycles through the crawlers");
+    assert.deepEqual([1, 2, 3, 4, 5, 6].map(() => (cur = pick(2, cur))), ["beetle", "spider", "jumper", "snake", "constrictor", "beetle"], "key 2 cycles through the crawlers");
+    assert.deepEqual([1, 2].map(() => (cur = pick(1, cur))), ["ant", "ant"], "key 1 is the reader: the ant");
     // who may walk on threads
     const may = Object.fromEntries(S.ANIMALS.map((x) => [x.id, S.canUseThreads(x)]));
-    assert.deepEqual(may, { lizard: false, snake: false, ant: true, cat: false, squirrel: false, spider: true, bee: true, dragonfly: true, bluejay: false, jumper: true, mite: true });
+    assert.deepEqual(may, { lizard: false, snake: false, ant: true, cat: false, squirrel: false, spider: true, bee: true, dragonfly: true, bluejay: false, jumper: true, beetle: true, constrictor: false, eagle: false });
   }
 
   // --- Space: crawlers never aim; ant / snake reach, spider does nothing; lizard / cat / squirrel / jumper aim ---

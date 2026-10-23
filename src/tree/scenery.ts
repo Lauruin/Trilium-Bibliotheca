@@ -71,10 +71,10 @@ function buildClouds(look: Look, groundY: number): THREE.Group {
   g.name = CLOUDS;
   const voxel = look === "voxel";
   const puffs: Item[] = [];
-  const COUNT = 34;
+  const COUNT = 80; // a wide field: the clouds stand in the WORLD (they used to follow the camera, which looked wrong when flying up among them)
   for (let i = 0; i < COUNT; i++) {
     const a = i * 2.399 + hash(i * 1.9) * 0.8;
-    const d = 2600 + hash(i * 5.3 + 2) * 9400;
+    const d = 1800 + Math.sqrt(hash(i * 5.3 + 2)) * 19000;
     const alt = groundY + 3800 + hash(i * 3.1) * 3600 + d * 0.12;
     const w = 520 + hash(i * 7.7) * 900;
     const n = 4 + Math.floor(hash(i * 2.2) * 4);

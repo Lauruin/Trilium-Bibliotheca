@@ -107,6 +107,59 @@ export default async ({ bundle, assert }) => {
     await f.close();
   }
 
+  // 3b. several folders / save notes carrying the labels (a copied folder, a second device): THE folder is the oldest, the save inside it wins, the rest is reported
+  {
+    const f3 = await startFake({ seed: "small" });
+    try {
+      const client = new CL.TriliumClient({ baseUrl: f3.url, token: f3.token });
+      const first = await YG.ensureYggdrasil(client, "root");
+      await YG.storeSave(client, "root", SV.sanitizeSave({ updatedAt: 5, settings: { "biblio.v1.treeLook": "voxel" } }));
+      await new Promise((r) => setTimeout(r, 1100)); // (the fake stamps creation times in whole seconds)
+      const second = (await client.createNote({ parentNoteId: "root", title: "Yggdrasil copy", type: "text", content: "" })).note.noteId;
+      await client.createAttribute({ noteId: second, type: "label", name: CFG.LABELS.yggdrasil });
+      const stray = (await client.createNote({ parentNoteId: second, title: "stray save", type: "code", mime: "application/json", content: SV.serializeSave(SV.sanitizeSave({ updatedAt: 9, settings: { "biblio.v1.treeLook": "lowpoly" } })) })).note.noteId;
+      await client.createAttribute({ noteId: stray, type: "label", name: CFG.LABELS.save });
+      assert.deepEqual(await YG.listYggdrasil(client), [first, second], "oldest first");
+      assert.equal(await YG.findYggdrasil(client), first, "the oldest folder is THE folder");
+      const info = await YG.inspectYggdrasil(client);
+      assert.equal(info.folder, first);
+      assert.equal(info.extraFolders, 1, "the second folder is reported");
+      assert.equal(info.extraSaves, 1, "the stray save note is reported");
+      const saveId = await YG.findSaveNote(client);
+      assert.notEqual(saveId, stray, "the save inside THE folder is used, not the stray one");
+      assert.equal((await YG.loadSave(client)).settings["biblio.v1.treeLook"], "voxel");
+      const m = await YG.storeSave(client, "root", SV.sanitizeSave({ updatedAt: 6, settings: { "biblio.v1.treeCam": "level" } }));
+      assert.equal(m.settings["biblio.v1.treeCam"], "level");
+      assert.equal(JSON.parse(await client.getNoteContent(stray)).settings["biblio.v1.treeLook"], "lowpoly", "the stray copy was not touched");
+      const walked = await LIB.walkLibraryTree(client, "root");
+      assert.ok(!walked.notes[first] && !walked.notes[second] && !walked.notes[stray], "every labelled folder (and what is inside) stays out of the library");
+      // place settings: a note per place inside THE folder; secrets are never stored
+      assert.deepEqual(await YG.readPlaceProps(client, "socrates"), {}, "none yet");
+      const stored = await YG.writePlaceProps(client, "root", "socrates", { persona: "Socrates", prompt: "Ask short questions.", temperature: 0.2, enabled: true, apiKey: "sk-ant-SECRET", "x token": "t", nested: { a: 1 }, list: [1] });
+      assert.deepEqual(stored, { persona: "Socrates", prompt: "Ask short questions.", temperature: 0.2, enabled: true }, "only flat safe values; secret-looking keys are refused");
+      const pid = await YG.findPlaceNote(client, "socrates");
+      assert.ok(pid && (await client.getNote(pid)).parentNoteIds.includes(first), "the place note lives in THE folder");
+      assert.ok(!(await client.getNoteContent(pid)).includes("SECRET"));
+      assert.deepEqual(await YG.readPlaceProps(client, "socrates"), stored);
+      await YG.writePlaceProps(client, "root", "socrates", { persona: "Plato" });
+      assert.deepEqual(await YG.readPlaceProps(client, "socrates"), { persona: "Plato" }, "a second write replaces the content of the same note");
+      assert.equal((await client.searchNotes('#biblio_place="socrates"')).results.length, 1, "no duplicate note");
+      await client.putNoteContent(pid, "not json");
+      assert.deepEqual(await YG.readPlaceProps(client, "socrates"), {}, "a damaged place note is empty settings");
+      await assert.rejects(() => YG.writePlaceProps(client, "root", "bad id!", {}), /bad place id/);
+      const big = YG.sanitizePlaceProps({ prompt: "x".repeat(9000), a: "b".repeat(5000), c: "d" });
+      assert.deepEqual(Object.keys(big), ["prompt"], "bounded: the total is capped (the key that would pass it is dropped)");
+      assert.equal(big.prompt.length, 4000, "a long value is cut");
+      assert.deepEqual(YG.sanitizePlaceProps(null), {});
+      assert.deepEqual(YG.sanitizePlaceProps([1]), {});
+      // read-only: refused
+      const ro = new CL.TriliumClient({ baseUrl: f3.url, token: f3.token, readOnly: true });
+      await assert.rejects(() => YG.writePlaceProps(ro, "root", "socrates", { a: 1 }), (e) => e.status === 403);
+    } finally {
+      await f3.close();
+    }
+  }
+
   // 4. the sync manager (localStorage shim)
   {
     const mem = new Map();

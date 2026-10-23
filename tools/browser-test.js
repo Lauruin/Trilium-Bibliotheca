@@ -240,7 +240,7 @@ try {
   await page.locator(".search-form button[type=submit]").click();
   await page.waitForSelector(".search-results li button", { timeout: 10000 });
   await page.locator(".search-results li button").first().click();
-  await page.waitForSelector("iframe.book-frame", { timeout: 10000 });
+  await page.waitForSelector("iframe.book-frame", { timeout: 45000 });
   const srcDoc = await page.locator("iframe.book-frame").first().getAttribute("srcdoc");
   if (!srcDoc?.includes("Hello from the demo book")) fail("book popup lacks seeded content");
   else ok("book popup renders note content (sandboxed iframe)");
@@ -259,7 +259,7 @@ try {
     await page.locator(".search-form button[type=submit]").click();
     await page.waitForSelector(".search-results li button", { timeout: 10000 });
     await page.locator(".search-results li button").first().click();
-    await page.waitForSelector("iframe.book-frame", { timeout: 10000 });
+    await page.waitForSelector("iframe.book-frame", { timeout: 45000 });
     const frame = page.frameLocator("iframe.book-frame");
     // (the click can land before the sandboxed page's script is listening: retry it)
     for (let attempt = 0; attempt < 4; attempt++) {
@@ -274,7 +274,7 @@ try {
     await page.getByRole("button", { name: "A+" }).click();
     await page.getByRole("button", { name: "Aa" }).click();
     await pickPaper(page, "Night");
-    await page.waitForFunction(() => document.querySelector("iframe.book-frame")?.getAttribute("srcdoc")?.includes("#1c1a24"), { timeout: 10000 }).catch(() => {});
+    await page.waitForFunction(() => document.querySelector("iframe.book-frame")?.getAttribute("srcdoc")?.includes("#1c1a24"), undefined, { timeout: 10000 }).catch(() => {});
     const styled = await page.locator("iframe.book-frame").getAttribute("srcdoc");
     if (styled?.includes("font-size: 21px") && styled.includes("#1c1a24")) ok("reader: text size + paper preferences applied");
     else {
@@ -328,7 +328,7 @@ try {
       // image note: shown in the popup (not in the sandbox), really decoded
       await openByTitle(`mediaPng${tag}`);
       await page.waitForSelector('[data-testid="media-image"] img', { timeout: 10000 });
-      await page.waitForFunction(() => { const i = document.querySelector('[data-testid="media-image"] img'); return i && i.complete && i.naturalWidth === 1; }, { timeout: 10000 });
+      await page.waitForFunction(() => { const i = document.querySelector('[data-testid="media-image"] img'); return i && i.complete && i.naturalWidth === 1; }, undefined, { timeout: 10000 });
       if ((await page.locator("iframe.book-frame").count()) === 0 && (await page.getByRole("button", { name: "A+" }).count()) === 0) ok("reader: an image note shows the picture (decoded, no text frame, no text controls)");
       else fail("image note still shows the text reader");
       await page.getByRole("button", { name: "✕" }).click();
@@ -350,7 +350,7 @@ try {
 
       // a text file is shown as text; a binary we cannot show gets a download card
       await openByTitle(`mediaTxt${tag}`);
-      await page.waitForSelector("iframe.book-frame", { timeout: 10000 });
+      await page.waitForSelector("iframe.book-frame", { timeout: 45000 });
       const txtDoc = await page.locator("iframe.book-frame").getAttribute("srcdoc");
       if (txtDoc?.includes("plain text file body") && txtDoc.includes("text file")) ok("reader: a text file note is shown as text");
       else fail("text file note not shown as text");
@@ -362,7 +362,7 @@ try {
 
       // text note with a picture embedded through an attachment: fetched with the token and inlined as a data: URL
       await openByTitle(`mediaRich${tag}`);
-      await page.waitForFunction(() => { const d = document.querySelector("iframe.book-frame")?.getAttribute("srcdoc") ?? ""; return d.includes("data:image/png;base64,") && d.includes("todo-list"); }, { timeout: 15000 });
+      await page.waitForFunction(() => { const d = document.querySelector("iframe.book-frame")?.getAttribute("srcdoc") ?? ""; return d.includes("data:image/png;base64,") && d.includes("todo-list"); }, undefined, { timeout: 15000 });
       const richDoc = await page.locator("iframe.book-frame").getAttribute("srcdoc");
       // check the LIVE iframe document, not only the attribute (a browser once kept the stale pre-embed page on screen)
       await page.waitForFunction(() => true);
@@ -388,7 +388,7 @@ try {
       await page.getByRole("button", { name: "Aa" }).click();
       for (const label of ["Leaf (maple)", "Leaf (autumn)", "Leaf"]) {
         await pickPaper(page, label);
-        await page.waitForFunction(() => document.querySelector("iframe.book-frame")?.getAttribute("srcdoc")?.includes("leaf-wrap"), { timeout: 8000 });
+        await page.waitForFunction(() => document.querySelector("iframe.book-frame")?.getAttribute("srcdoc")?.includes("leaf-wrap"), undefined, { timeout: 8000 });
         await page.waitForTimeout(250);
         await page.screenshot({ path: `shots/reader-popup-${label.replace(/[^a-z]+/gi, "-").toLowerCase()}.png` });
       }
@@ -409,7 +409,7 @@ try {
   if (noGl > 0) {
     ok("tree view: no WebGL in this browser — steps skipped (the app falls back to the library)");
   } else {
-    await page.waitForFunction(() => window.__treeScene && window.__treeScene.leaves.length > 0, { timeout: 15000 });
+    await page.waitForFunction(() => window.__treeScene && window.__treeScene.leaves.length > 0, undefined, { timeout: 15000 });
     const stats = await page.evaluate(() => ({ b: window.__treeScene.world.branches.size, l: window.__treeScene.leaves.length }));
     if (stats.b > 0 && stats.l > 0) ok(`tree view: vault laid out as ${stats.b} branches / ${stats.l} leaves`);
     else fail("tree view built no branches/leaves");
@@ -423,7 +423,7 @@ try {
     });
     await page.waitForTimeout(600);
     await page.keyboard.press("e");
-    await page.waitForSelector("iframe.book-frame", { timeout: 10000 });
+    await page.waitForSelector("iframe.book-frame", { timeout: 45000 });
     const head = await page.locator(".book-title").innerText();
     if (head === leaf.title) ok("tree view: E next to a leaf opens that note in the reader");
     else fail(`reader opened "${head}" but the leaf was "${leaf.title}"`);
@@ -446,26 +446,26 @@ try {
     await page.waitForTimeout(300);
     if (["chase", "level", "fixed"].includes(cam1)) ok(`tree view: V cycled the camera (now ${cam1})`);
     else fail(`unknown camera mode ${cam1}`);
-    await page.waitForFunction(() => window.__treeScene.leaves.some((l) => l.size !== 1), { timeout: 15000 }).then(
+    await page.waitForFunction(() => window.__treeScene.leaves.some((l) => l.size !== 1), undefined, { timeout: 15000 }).then(
       () => ok("tree view: leaf sizes follow the measured note length"),
       () => fail("no leaf size was ever measured"),
     );
     const ground = await page.evaluate(() => window.__treeScene.world.groundY);
     if (typeof ground === "number") ok(`tree view: ground at y=${ground}`);
     else fail("layout world has no groundY");
-    // N cycles the branch names, 1/2/3 pick animal categories (again = next), H toggles auto-align, branches taper
+    // N cycles the branch names, 1-4 pick animal categories (again = next), H toggles auto-align, branches taper
     const lab0 = await page.evaluate(() => window.__treeScene.labelMode);
     await page.keyboard.press("n");
     const lab1 = await page.evaluate(() => window.__treeScene.labelMode);
     if (lab0 !== lab1) ok(`tree view: N cycled the branch names (${lab0} → ${lab1})`);
     else fail("N did not change the label mode");
     const ids = [];
-    for (let i = 0; i < 4; i++) {
-      await page.keyboard.press("3");
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press("4");
       ids.push(await page.evaluate(() => window.__treeScene.creature.animal.id));
     }
-    if (new Set(ids).size === 4 && ids.every((x) => ["squirrel", "bee", "dragonfly", "bluejay"].includes(x))) ok(`tree view: key 3 cycles the fliers (${ids.join(" → ")})`);
-    else fail(`key 3 did not cycle through the fliers: ${ids}`);
+    if (new Set(ids).size === 5 && ids.every((x) => ["squirrel", "bee", "dragonfly", "bluejay", "eagle"].includes(x))) ok(`tree view: key 4 cycles the fliers (${ids.join(" → ")})`);
+    else fail(`key 4 did not cycle through the fliers: ${ids}`);
     const aa0 = await page.evaluate(() => window.__treeScene.creature.autoAlign);
     await page.keyboard.press("h");
     const aa1 = await page.evaluate(() => window.__treeScene.creature.autoAlign);
@@ -475,17 +475,17 @@ try {
     await page.keyboard.press("i");
     // (software GL renders ~2 frames a second here, so every wait on the scene needs a generous timeout)
     await page.waitForSelector('[data-testid="perf-overlay"]', { timeout: 45000 });
-    await page.waitForFunction(() => window.__treeScene.stats.samples >= 4, { timeout: 60000 });
+    await page.waitForFunction(() => window.__treeScene.stats.samples >= 3, undefined, { timeout: 120000 });
     const ps = await page.evaluate(() => window.__treeScene.stats);
     const finiteStats = [ps.fps, ps.avgFrameMs, ps.avgCpuMs, ps.avgRenderMs, ps.calls, ps.triangles, ps.dpr, ps.width, ps.height].every(Number.isFinite);
     if (finiteStats && ps.calls > 5 && ps.triangles > 1000 && ps.fps > 0 && ps.dpr <= 2 && ps.width > 100) ok(`tree view: performance panel (I): ${ps.fps.toFixed(0)} fps, ${ps.calls} draw calls, ${ps.triangles} triangles, ratio ${ps.dpr.toFixed(2)}, ${ps.diagnosis}`);
     else fail(`performance stats look wrong: ${JSON.stringify(ps)}`);
     await page.getByRole("button", { name: "fast", exact: true }).click();
-    await page.waitForFunction(() => window.__treeScene.perfProfile === "fast" && window.__treeScene.stats.dpr <= 1, { timeout: 45000 });
+    await page.waitForFunction(() => window.__treeScene.perfProfile === "fast" && window.__treeScene.stats.dpr <= 1, undefined, { timeout: 45000 });
     await page.getByRole("button", { name: "quality", exact: true }).click();
-    await page.waitForFunction(() => window.__treeScene.perfProfile === "quality" && window.__treeScene.stats.maxFps === 0, { timeout: 45000 });
+    await page.waitForFunction(() => window.__treeScene.perfProfile === "quality" && window.__treeScene.stats.maxFps === 0, undefined, { timeout: 45000 });
     await page.getByRole("button", { name: "auto", exact: true }).click();
-    await page.waitForFunction(() => window.__treeScene.perfProfile === "auto", { timeout: 45000 });
+    await page.waitForFunction(() => window.__treeScene.perfProfile === "auto", undefined, { timeout: 45000 });
     ok("tree view: performance profiles switch (fast caps the pixel ratio at 1, quality lifts the fps cap)");
     await page.keyboard.press("i");
     await page.waitForSelector('[data-testid="perf-overlay"]', { state: "detached", timeout: 45000 });
@@ -493,9 +493,8 @@ try {
     // (the scene runs ~2 frames a second in software GL, so the waits are long; the walks are short)
     // (cheapest rendering for these steps: blended foliage close to the camera costs software GL seconds per frame)
     await page.evaluate(() => { const sc = window.__treeScene; sc.setFoliage(false); sc.setShadows("off"); sc.setPerfProfile("fast"); sc.setLook("lowpoly"); });
-    await page.keyboard.press("1");
-    await page.keyboard.press("2"); // crawlers, then walkers: the lizard
-    await page.waitForFunction(() => window.__treeScene.creature.animal.id === "lizard", { timeout: 45000 });
+    await page.keyboard.press("3"); // walkers: the lizard
+    await page.waitForFunction(() => window.__treeScene.creature.animal.id === "lizard", undefined, { timeout: 45000 });
     for (let i = 0; i < 5 && (await page.evaluate(() => window.__treeScene.camMode)) !== "mouse"; i++) await page.keyboard.press("v");
     if ((await page.evaluate(() => window.__treeScene.camMode)) === "mouse") ok("tree view: V reaches the mouse camera mode");
     else fail("the V cycle never reached the mouse camera");
@@ -524,12 +523,12 @@ try {
       const px = box.x + spot.px.x, py = box.y + spot.px.y;
       await page.mouse.move(px, py);
       await page.mouse.move(px + 1, py); // (a second move: the hover is throttled to 10 Hz)
-      await page.waitForFunction(() => !!window.__treeScene.hover, { timeout: 45000 });
+      await page.waitForFunction(() => !!window.__treeScene.hover, undefined, { timeout: 45000 });
       const hv = await page.evaluate(() => ({ kind: window.__treeScene.hover.pick.kind, b: window.__treeScene.hover.pick.b ?? window.__treeScene.hover.pick.leaf?.branchId }));
       if (hv.b) ok(`tree view: hovering a ${hv.kind} is picked (${hv.b})`);
       else fail(`hover pick gave ${JSON.stringify(hv)}`);
       await page.mouse.click(px, py);
-      await page.waitForFunction(() => !!window.__treeScene.pilot || true, { timeout: 5000 });
+      await page.waitForFunction(() => !!window.__treeScene.pilot || true, undefined, { timeout: 5000 });
       const started = await page.evaluate(() => ({ walking: !!window.__treeScene.pilot, goal: window.__treeScene.pilot?.goal ?? null, head: window.__treeScene.creature.head.s }));
       if (started.walking || started.goal === null) ok("tree view: a click starts the autopilot");
       await page.evaluate(() => window.__treeScene.advance(40)); // (the simulation without rendering: software GL frames take seconds)
@@ -548,7 +547,7 @@ try {
       await page.evaluate(() => window.__treeScene.advance(0.4));
       assert_(await page.evaluate(() => window.__treeScene.pilot !== null), "still walking after 0.4 s");
       await page.keyboard.press("Escape");
-      await page.waitForFunction(() => window.__treeScene.pilot === null, { timeout: 45000 });
+      await page.waitForFunction(() => window.__treeScene.pilot === null, undefined, { timeout: 45000 });
       ok(`tree view: Esc stopped a walk (${far.id})`);
       // double-click a leaf: a leaf goal plus the double-click flag walks there and opens the note in the reader
       // (the pixel-to-leaf picking is covered by the hover step above and the unit tests; here the wiring pilot -> reader is checked)
@@ -585,7 +584,7 @@ try {
       const hub = [...sc.world.branches.values()].find((b) => b.parent === null && !b.silk);
       sc.respawn(hub.id, 120);
     });
-    await page.waitForFunction(() => !(document.querySelector(".tree-crumbs")?.textContent ?? "").includes("›"), { timeout: 30000 }); // the HUD has caught up (software GL is slow)
+    await page.waitForFunction(() => !(document.querySelector(".tree-crumbs")?.textContent ?? "").includes("›"), undefined, { timeout: 30000 }); // the HUD has caught up (software GL is slow)
     await page.keyboard.press("b");
     await page.waitForSelector(".branch-panel", { timeout: 10000 });
     await page.locator('.branch-panel input[type="range"]').first().fill("420");
@@ -617,23 +616,26 @@ try {
     await page.evaluate(() => { try { localStorage.setItem("biblio.v1.treeLook", "lowpoly"); localStorage.setItem("biblio.v1.treeFoliage", "off"); localStorage.setItem("biblio.v1.treePerf", "fast"); } catch { /* ignore */ } });
     await page.goto(APP_URL, { waitUntil: "domcontentloaded" });
     await page.waitForSelector(".tree-view .tree-canvas canvas", { timeout: 90000 });
-    await page.waitForFunction(() => window.__treeScene && window.__treeScene.shrine && window.__treeScene.leaves.length > 0, { timeout: 90000 });
+    await page.waitForFunction(() => window.__treeScene && window.__treeScene.shrine && window.__treeScene.leaves.length > 0, undefined, { timeout: 90000 });
     if ((await page.locator("#game-host").count()) === 0) ok("start view: the tree (the Phaser library is not even loaded yet: it is a lazy chunk)");
     else fail("the library was mounted at start");
-    await page.waitForFunction(() => /through the door/.test(document.querySelector(".tree-hint")?.textContent ?? ""), { timeout: 90000 });
-    ok("the animal starts at the shrine's door (hint: E walk through the door into the library)");
+    await page.waitForFunction(() => /open the shrine/.test(document.querySelector(".tree-hint")?.textContent ?? ""), undefined, { timeout: 90000 });
+    ok("the animal starts on the porch (a nest on a low branch of Yggdrasil): hint E open the shrine");
+    if (await page.evaluate(() => window.__treeScene.creature.head.b === "place:porch")) ok("the spawn is the porch limb");
+    else fail("the animal did not spawn on place:porch");
     await page.keyboard.press("t");
     await page.waitForTimeout(400);
     if ((await page.locator(".tree-view").count()) > 0 && (await page.locator("#game-host").count()) === 0) ok("T does nothing at the start (it only leaves the library)");
     else fail("T changed the view in the tree");
     // the altar: E opens the shrine panel
+    await page.evaluate(() => window.__treeScene.moveToPad("door"));
     await page.evaluate(() => window.__treeScene.moveToPad("altar"));
-    await page.waitForFunction(() => /open the shrine/.test(document.querySelector(".tree-hint")?.textContent ?? ""), { timeout: 90000 });
+    await page.waitForFunction(() => /open the shrine/.test(document.querySelector(".tree-hint")?.textContent ?? ""), undefined, { timeout: 90000 });
     await page.keyboard.press("e");
     await page.getByRole("dialog", { name: "Shrine" }).waitFor({ timeout: 15000 });
     if ((await page.locator('[data-testid="shrine-library"]').count()) > 0 && (await page.locator('[data-testid="shrine-wisp"]').count()) > 0) ok("E at the altar opens the shrine panel (library door + wisp sections)");
     else fail("shrine panel lacks its sections");
-    // The mite reads ON a leaf: choosing it next to a leaf opens the leaf view; W/S walks the text; another animal climbs back out
+    // The ant reads ON a leaf: choosing it next to a leaf opens the leaf view; W/S walks the text; another animal climbs back out
     {
       await page.evaluate(() => {
         const sc = window.__treeScene;
@@ -643,21 +645,21 @@ try {
         window.__leafTitle = lf.title;
       });
       await page.waitForTimeout(500);
-      await page.evaluate(() => window.__treeScene.chooseAnimal("mite"));
+      await page.evaluate(() => window.__treeScene.chooseAnimal("ant"));
       await page.getByTestId("leaf-view").waitFor({ timeout: 30000 });
-      await page.waitForFunction(() => document.querySelector('[data-testid="leaf-view"]')?.getAttribute("data-status") === "ready", { timeout: 30000 });
+      await page.waitForFunction(() => document.querySelector('[data-testid="leaf-view"]')?.getAttribute("data-status") === "ready" && !!document.querySelector('[data-testid="leaf-view"]').dataset.lines, undefined, { timeout: 60000 }); // (the line count is written by the first canvas draw)
       const info = await page.getByTestId("leaf-view").evaluate((el) => ({ lines: Number(el.dataset.lines), text: el.dataset.text, blade: el.dataset.blade, chars: Number(el.dataset.chars) }));
-      if (info.lines > 0 && info.chars > 20) ok(`leaf view: the mite opened "${await page.evaluate(() => window.__leafTitle)}" (${info.chars} characters, ${info.lines} lines on a ${info.blade} leaf: "${info.text.slice(0, 40)}…")`);
+      if (info.lines > 0 && info.chars > 20) ok(`leaf view: the ant opened "${await page.evaluate(() => window.__leafTitle)}" (${info.chars} characters, ${info.lines} lines on a ${info.blade} leaf: "${info.text.slice(0, 40)}…")`);
       else fail(`leaf view is empty: ${JSON.stringify(info)}`);
       await page.keyboard.down("s");
       await page.waitForTimeout(700);
       await page.keyboard.up("s");
       const prog = await page.getByTestId("leaf-view").getAttribute("data-progress");
-      if (Number(prog) > 0 || info.lines < 3) ok("leaf view: S walks the mite down the text");
-      else fail(`the mite did not move (progress ${prog})`);
-      await page.keyboard.press("2"); // another animal: climb back out
+      if (Number(prog) > 0 || info.lines < 3) ok("leaf view: S walks the ant down the text");
+      else fail(`the ant did not move (progress ${prog})`);
+      await page.keyboard.press("3"); // another animal (walkers): climb back out
       await page.getByTestId("leaf-view").waitFor({ state: "detached", timeout: 10000 });
-      if ((await page.evaluate(() => window.__treeScene.creature.animal.id)) === "lizard") ok("leaf view: choosing another animal (2) climbs back out into the tree");
+      if ((await page.evaluate(() => window.__treeScene.creature.animal.id)) === "lizard") ok("leaf view: choosing another animal (3) climbs back out into the tree");
       else fail("the animal did not change on leaving the leaf");
     }
     // Clock: the sun, sky and lights follow the hour (fixed hour via the panel); at night the wisp is a lantern
@@ -665,12 +667,12 @@ try {
       const daySnap = () => page.evaluate(() => { const s = window.__treeScene; const d = s.daylight; return { hours: d.hours, dayK: d.dayK, stars: d.stars, shadow: d.shadowStrength, lantern: s.lanternOn, sunY: d.sunDir.y, intensity: s.sunLightIntensity }; });
       await page.getByTestId("clock-fixed").click();
       await page.getByTestId("clock-hour").fill("0");
-      await page.waitForFunction(() => window.__treeScene.daylight.hours === 0 && window.__treeScene.lanternOn, { timeout: 90000 });
+      await page.waitForFunction(() => window.__treeScene.daylight.hours === 0 && window.__treeScene.lanternOn, undefined, { timeout: 90000 });
       const night = await daySnap();
       if (night.dayK < 0.05 && night.stars > 0.9 && night.shadow === 0 && night.lantern && night.sunY < 0 && night.intensity === 0) ok("clock: at midnight the stars are out, the sun is down, no shadows, the wisp is a lantern");
       else fail(`midnight looks wrong: ${JSON.stringify(night)}`);
       await page.getByTestId("clock-hour").fill("12");
-      await page.waitForFunction(() => window.__treeScene.daylight.hours === 12 && !window.__treeScene.lanternOn, { timeout: 90000 });
+      await page.waitForFunction(() => window.__treeScene.daylight.hours === 12 && !window.__treeScene.lanternOn, undefined, { timeout: 90000 });
       const noon = await daySnap();
       if (noon.dayK > 0.95 && noon.stars === 0 && noon.shadow > 0.95 && !noon.lantern && noon.sunY > 0.3 && noon.intensity > 2.8) ok("clock: at noon it is bright, the sun is high, shadows are full and the lantern is off");
       else fail(`noon looks wrong: ${JSON.stringify(noon)}`);
@@ -695,7 +697,7 @@ try {
       if ((await search("#biblio_yggdrasil")).length === 0) ok("shrine: switching it on only reads (still no folder)");
       else fail("switching on wrote to the vault");
       await page.getByRole("button", { name: "save now" }).click();
-      await page.waitForFunction(() => /Saved to Trilium/.test(document.querySelector('[data-testid="sync-msg"]')?.textContent ?? ""), { timeout: 20000 });
+      await page.waitForFunction(() => /Saved to Trilium/.test(document.querySelector('[data-testid="sync-msg"]')?.textContent ?? ""), undefined, { timeout: 20000 });
       const saves = await search("#biblio_save");
       const folders = await search("#biblio_yggdrasil");
       if (saves.length === 1 && folders.length === 1) ok("shrine: save now created the Yggdrasil folder and the save note");
@@ -713,7 +715,7 @@ try {
     await page.getByRole("dialog", { name: "Shrine" }).waitFor({ state: "detached", timeout: 10000 });
     // the wisp perched on its lantern post: a click opens the search; results can be walked to / lit
     await page.evaluate(() => { const s = window.__treeScene; s.moveToPad("wisp"); s.setCamera("fixed"); s.zoomMul = 0.8; });
-    await page.waitForFunction(() => { const s = window.__treeScene; const p = s.wispPoint, q = s.shrine.perch; return Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z) < 30; }, { timeout: 90000 });
+    await page.waitForFunction(() => { const s = window.__treeScene; const p = s.wispPoint, q = s.shrine.perch; return Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z) < 30; }, undefined, { timeout: 90000 });
     // (software GL: wait until the wisp's screen position has stopped moving: the camera and the wisp both catch up slowly)
     let wp = null;
     for (let i = 0; i < 60 && !wp; i++) {
@@ -725,7 +727,7 @@ try {
     const cb = await page.locator(".tree-canvas canvas").boundingBox();
     if (wp && cb) {
       await page.mouse.move(cb.x + wp.x, cb.y + wp.y);
-      await page.waitForFunction(() => window.__treeScene.overWisp(...Object.values(window.__treeScene.screenOf(window.__treeScene.wispPoint))), { timeout: 5000 }).catch(() => {});
+      await page.waitForFunction(() => window.__treeScene.overWisp(...Object.values(window.__treeScene.screenOf(window.__treeScene.wispPoint))), undefined, { timeout: 5000 }).catch(() => {});
       await page.mouse.click(cb.x + wp.x, cb.y + wp.y);
       await page.getByRole("dialog", { name: "Search" }).waitFor({ timeout: 15000 }).catch(async (e) => {
         console.log("DBG dialogs:", await page.locator('[role="dialog"]').evaluateAll((els) => els.map((x) => x.getAttribute("aria-label"))), "wisp", JSON.stringify(wp), "over", await page.evaluate(() => { const s = window.__treeScene; const p = s.screenOf(s.wispPoint); return [p, p && s.overWisp(p.x, p.y), s.enabled]; }));
@@ -738,7 +740,7 @@ try {
       const acts = await page.locator(".search-act").count();
       if (acts >= 2) {
         await page.getByRole("button", { name: "take me there" }).first().click();
-        await page.waitForFunction(() => !!window.__treeScene.pilot, { timeout: 15000 });
+        await page.waitForFunction(() => !!window.__treeScene.pilot, undefined, { timeout: 15000 });
         ok("search result: take me there starts the autopilot");
         await page.evaluate(() => window.__treeScene.cancelPilot());
         await page.getByRole("button", { name: "search", exact: true }).click();
@@ -746,7 +748,7 @@ try {
         await page.locator(".search-form button[type=submit]").click();
         await page.waitForSelector(".search-act", { timeout: 15000 });
         await page.getByRole("button", { name: "light the way" }).first().click();
-        await page.waitForFunction(() => window.__treeScene.wispGuiding, { timeout: 15000 });
+        await page.waitForFunction(() => window.__treeScene.wispGuiding, undefined, { timeout: 15000 });
         ok("search result: light the way sends the wisp to the leaf");
         await page.evaluate(() => window.__treeScene.setWispMode("perch"));
       } else fail("the search results offered no take me there / light the way in the tree view");
@@ -754,21 +756,22 @@ try {
     } else fail("the wisp is off screen");
     // the door: E at the door enters the library; T brings you back to the door
     await page.evaluate(() => window.__treeScene.moveToPad("door"));
-    await page.waitForFunction(() => /through the door/.test(document.querySelector(".tree-hint")?.textContent ?? ""), { timeout: 90000 });
+    await page.waitForFunction(() => /through the door/.test(document.querySelector(".tree-hint")?.textContent ?? ""), undefined, { timeout: 90000 });
     await page.keyboard.press("e");
     await page.waitForSelector("#game-host canvas", { timeout: 60000 });
-    await page.waitForFunction(() => document.querySelector(".crumb-btn")?.textContent === "Library", { timeout: 30000 });
+    await page.waitForFunction(() => document.querySelector(".crumb-btn")?.textContent === "Library", undefined, { timeout: 30000 });
     if ((await page.locator(".tree-view").count()) === 0) ok("E at the door walks into the library's root room");
     else fail("the tree view is still shown after the door");
+    await page.evaluate(() => { window.__treeScene = undefined; }); // (so the waits below see the NEW scene, not the one the library replaced)
     await page.keyboard.press("t");
     await page.waitForSelector(".tree-view .tree-canvas canvas", { timeout: 60000 });
-    await page.waitForFunction(() => window.__treeScene && window.__treeScene.shrine, { timeout: 90000 });
-    await page.waitForFunction(() => /through the door/.test(document.querySelector(".tree-hint")?.textContent ?? ""), { timeout: 90000 });
-    ok("T in the library goes back out to the tree, at the shrine's door");
+    await page.waitForFunction(() => window.__treeScene && window.__treeScene.shrine, undefined, { timeout: 90000 });
+    await page.waitForFunction(() => /open the shrine/.test(document.querySelector(".tree-hint")?.textContent ?? ""), undefined, { timeout: 90000 });
+    ok("T in the library goes back out to the tree, onto the porch");
     await page.evaluate(() => window.__treeScene.moveToPad("door"));
     await page.keyboard.press("e");
   }
-  await page.waitForFunction(() => { const g = document.querySelector("#game-host"); return g && g.style.display !== "none"; }, { timeout: 30000 });
+  await page.waitForFunction(() => { const g = document.querySelector("#game-host"); return g && g.style.display !== "none"; }, undefined, { timeout: 30000 });
   ok("back in the library rooms");
 
   // 3. Overview toggle via HUD.

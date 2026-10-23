@@ -134,9 +134,9 @@ const GROUND_K = 0.45; // centre height = this x the local radius (the root is p
  * dipping onto it) along the ground to the tree's foot `F` (x, z), where it sweeps up and ends at `foot` (the trunk's start
  * point) with the trunk's own direction `d0`, so the trunk continues without a kink. `rEnd` = the trunk's start radius,
  * `rs0` = the root's radius at the stump. Slight deterministic undulation (`seed` in [0, 1)) and sideways wander.
- * Returns the points and `c0` = the height of the first point (the root's `attachS` on the stump).
+ * `startR` > 0 trims the part inside a fat trunk (see below). Returns the points and `c0` = the height of the first point (the root's `attachS` on the stump).
  */
-export function rootPath(F: { x: number; z: number }, foot: V3, d0: V3, rs0: number, rEnd: number, seed: number): { pts: V3[]; c0: number } {
+export function rootPath(F: { x: number; z: number }, foot: V3, d0: V3, rs0: number, rEnd: number, seed: number, startR = 0): { pts: V3[]; c0: number } {
   const L = Math.hypot(F.x, F.z) || 1;
   const h = v3(F.x / L, 0, F.z / L);
   const side = v3(-h.z, 0, h.x);
@@ -182,6 +182,17 @@ export function rootPath(F: { x: number; z: number }, foot: V3, d0: V3, rs0: num
     const c = 3 * (1 - t) * t * t;
     const e = t ** 3;
     pts.push(v3(a * A0.x + b * P1.x + c * P2.x + e * foot.x, a * A0.y + b * P1.y + c * P2.y + e * foot.y, a * A0.z + b * P1.z + c * P2.z + e * foot.z));
+  }
+  // a fat central trunk (the world tree): the root starts on ITS SURFACE (`startR` from the axis), not inside it, so an animal walking in along the
+  // root steps onto the trunk instead of walking through its wood until the axis
+  if (startR > 0) {
+    const k0 = pts.findIndex((p) => Math.hypot(p.x, p.z) >= startR);
+    if (k0 > 0 && pts.length - k0 >= 3) {
+      const a = pts[k0 - 1], b = pts[k0];
+      const da = Math.hypot(a.x, a.z), db = Math.hypot(b.x, b.z);
+      const t = db > da ? (startR - da) / (db - da) : 1;
+      pts.splice(0, k0, v3(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t));
+    }
   }
   return { pts, c0: pts[0].y };
 }

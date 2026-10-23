@@ -138,6 +138,20 @@ export default async ({ bundle, assert }) => {
   assert.equal(rig.active, false);
   assert.equal(light.shadow.autoUpdate, false);
   assert.equal(light.castShadow, true, "the light keeps casting (no recompile of every program)");
+  // regression: a frozen map that was never rendered does not exist, but every lit material samples it -> GL "texture format and sampler type mismatch", a blank screen.
+  // Switching shadows on at night (or off -> on at dusk) must therefore render the map ONCE.
+  light.shadow.needsUpdate = false;
+  light.shadow.map = null;
+  rig.set("high");
+  assert.equal(light.shadow.autoUpdate, false);
+  assert.equal(light.shadow.needsUpdate, true, "a missing map is rendered once even while the pass is frozen");
+  light.shadow.needsUpdate = false;
+  light.shadow.map = { dispose() {} }; // (rendered: nothing more to force)
+  rig.set("high");
+  assert.equal(light.shadow.needsUpdate, false, "an existing map is left alone");
+  rig.set("medium");
+  assert.equal(light.shadow.needsUpdate, true, "a resized map is new: rendered once");
+  light.shadow.map = null;
   const night = new THREE.Vector3(-0.5, 0.3, 0.8).normalize();
   rig.setSunDir(night);
   rig.update({ x: 10, y: 20, z: 30 }, 500);

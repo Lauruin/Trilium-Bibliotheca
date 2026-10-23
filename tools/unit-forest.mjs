@@ -68,7 +68,11 @@ export default async ({ bundle, assert }) => {
       assert.ok(rb && rb.root === true, `${tid}: has a ground root`);
       assert.equal(rb.parent, "root");
       assert.ok(rb.attachS > 0 && rb.attachS < stump.total, "the root leaves the stump near its base");
-      assert.ok(W.dist(rb.pts[0], W.frameAt(stump, rb.attachS).p) < 1e-6, "the root starts on the stump's axis");
+      { // the root starts on the SURFACE of the (fat) trunk, at the height of its attachS, not inside the wood
+        const f = W.frameAt(stump, rb.attachS);
+        const horiz = Math.hypot(rb.pts[0].x - f.p.x, rb.pts[0].z - f.p.z);
+        assert.ok(Math.abs(horiz - 0.9 * stump.r) < 2 && Math.abs(rb.pts[0].y - f.p.y) < 1e-6, `the root starts on the trunk's surface (${horiz.toFixed(1)} from the axis, trunk radius ${stump.r.toFixed(0)})`);
+      }
       assert.deepEqual(rb.next, [tid], "the trunk continues from the root's END");
       assert.deepEqual(rb.side, []);
       assert.equal(tb.parent, rb.id);

@@ -196,4 +196,54 @@ export default async ({ bundle, assert }) => {
     const len1 = Math.hypot(...["x", "y", "z"].map((k) => S.bodyPoint(c, 0).p[k] - S.bodyPoint(c, Math.max(...A(id).nodes.map((n) => n.d))).p[k]));
     assert.ok(len1 > 0.85 * Math.max(len0, 1) || len1 > 0.8 * Math.max(...A(id).nodes.map((n) => n.d)), `${id}: still stretched out after 8 s of W at the tip (${len1.toFixed(1)} vs ${len0.toFixed(1)})`);
   }
+
+  // 8. flying with the mouse camera: W throttle, S slow, A/D strafe, skydive when looking steeply down with W (bleeds away when the nose comes up)
+  for (const id of ["bluejay", "eagle"]) {
+    const w = { branches: new Map(), groundY: -90000 };
+    W.addBranch(w, W.makeBranch("a", W.smoothPath([W.v3(0, 0, 0), W.v3(1500, 0, 0), W.v3(3000, 0, 0)]), 40));
+    const c = S.spawn(w, A(id), "a", 1000, "guided");
+    c.head.th = 0; c.phi = 0; c.gripOn = false;
+    run(w, c, { ...idle, leap: true, reach: true }, 0.1);
+    for (let i = 0; i < 20 && !c.flight; i++) run(w, c, { ...idle, reach: true }, 0.1);
+    assert.ok(c.flight, `${id}: airborne`);
+    const fl = A(id).flight;
+    const dir = (pitch) => norm({ x: Math.cos(c.flight.yaw) * Math.cos(pitch), y: Math.sin(pitch), z: Math.sin(c.flight.yaw) * Math.cos(pitch) });
+    const level = { ...idle, aimDir: dir(0) };
+    run(w, c, level, 6);
+    const cruise = c.flight.speed;
+    run(w, c, { ...level, forward: true }, 6);
+    const fast = c.flight.speed;
+    assert.ok(fast > cruise * 1.2 && fast <= fl.speed + 1, `${id}: W is the throttle (${cruise.toFixed(0)} -> ${fast.toFixed(0)}, top ${fl.speed.toFixed(0)})`);
+    run(w, c, { ...level, back: true }, 6);
+    assert.ok(c.flight.speed < cruise * 0.9, `${id}: S slows it down (${c.flight.speed.toFixed(0)})`);
+    // A / D strafe: the position moves sideways and the heading does not turn
+    run(w, c, level, 3);
+    const yaw0 = c.flight.yaw, p0 = { ...c.flight.p };
+    const rightV = { x: -Math.sin(yaw0), z: Math.cos(yaw0) };
+    run(w, c, { ...level, right: true }, 1.2);
+    const dx = c.flight.p.x - p0.x, dz = c.flight.p.z - p0.z;
+    const side = dx * rightV.x + dz * rightV.z;
+    assert.ok(side > 0.2 * fl.speed * 0.45 * 1.2 && Math.abs(W.wrapAngle(c.flight.yaw - yaw0)) < 0.05, `${id}: D strafes right without turning (${side.toFixed(0)} px sideways, yaw change ${(c.flight.yaw - yaw0).toFixed(3)})`);
+    run(w, c, { ...level, left: true }, 2.4);
+    const side2 = (c.flight.p.x - p0.x) * rightV.x + (c.flight.p.z - p0.z) * rightV.z;
+    assert.ok(side2 < side, `${id}: A strafes the other way`);
+    // skydive: looking steeply down with W climbs past the normal top speed; looking up bleeds it
+    c.flight.p.y = 60000;
+    run(w, c, { ...level, forward: true }, 4);
+    run(w, c, { ...idle, forward: true, aimDir: dir(-1.2) }, 7);
+    const dive = c.flight.speed;
+    assert.ok(dive > fl.speed * 1.15 && dive <= fl.speed * S.SKYDIVE + 1, `${id}: a skydive beats the normal top speed (${dive.toFixed(0)} > ${fl.speed.toFixed(0)}, cap ${(fl.speed * S.SKYDIVE).toFixed(0)})`);
+    run(w, c, { ...idle, forward: true, aimDir: dir(0.5) }, 5);
+    assert.ok(c.flight.speed < dive * 0.75 && c.flight.speed <= fl.speed + 1, `${id}: pitching up bleeds the dive speed away (${c.flight.speed.toFixed(0)})`);
+    // without the camera nothing changes: W dives, A/D turn (the old keys)
+    const w2 = { branches: new Map(), groundY: -90000 };
+    W.addBranch(w2, W.makeBranch("a", W.smoothPath([W.v3(0, 0, 0), W.v3(1500, 0, 0), W.v3(3000, 0, 0)]), 40));
+    const d = S.spawn(w2, A(id), "a", 1000, "guided");
+    d.head.th = 0; d.phi = 0; d.gripOn = false;
+    run(w2, d, { ...idle, leap: true, reach: true }, 0.1);
+    for (let i = 0; i < 20 && !d.flight; i++) run(w2, d, { ...idle, reach: true }, 0.1);
+    const yd = d.flight.yaw;
+    run(w2, d, { ...idle, right: true }, 1);
+    assert.ok(d.flight.yaw !== yd, `${id}: without the mouse camera A/D still turn`);
+  }
 };

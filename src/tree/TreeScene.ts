@@ -27,9 +27,9 @@ import {
   FrameLimiter, useMsaa, type FrameSummary, type PerfProfile,
 } from "./perf";
 import type { Leaf } from "./layout";
-import { frameAt, nearestOnBranch, radiusAt, surfacePoint, thetaOf, type World } from "./world3";
+import { frameAt, nearestOnBranch, radiusAt, surfacePoint, type World } from "./world3";
 import { clampDensity, FoliageLayer } from "./foliage";
-import { arrival, padNear, shrineOf, type Pad, type PadId, type Shrine } from "./shrine";
+import { arrival, padNear, padStand, shrineOf, type Pad, type PadId, type Shrine } from "./shrine";
 import { daylight, type Daylight } from "./daylight";
 import { CLOCK_KEY, parseClock, serializeClock, WorldClock, type ClockState } from "./clock";
 import { SkyRig } from "./sky";
@@ -188,7 +188,7 @@ export class TreeScene {
   onHud: ((h: HudInfo) => void) | null = null;
   /** E pressed near a leaf. */
   onInteract: ((leaf: Leaf) => void) | null = null;
-  /** An animal was chosen (the tree view opens the leaf view when it is the mite and a leaf is near). */
+  /** An animal was chosen (the tree view opens the leaf view when it is the ant and a leaf is near). */
   onAnimal: ((a: Animal) => void) | null = null;
   /** E pressed at a shrine pad (door / altar / wisp), or the wisp was clicked. */
   onPad: ((id: PadId) => void) | null = null;
@@ -687,15 +687,14 @@ export class TreeScene {
     this.creature.autoAlign = autoAlign;
   }
 
-  /** Put the animal at a pad (the door / the altar: on the stump's foot at that side; the wisp: at the foot facing the lantern post). For tests and tools. */
+  /** Put the animal at a pad (door at the foot, the altar in the porch's nest, the wisp at its branch's tip, a place's lantern). For tests and tools. */
   moveToPad(id: PadId): void {
     const sh = this.shrine;
     if (!sh) return;
-    const b = this.world.branches.get(sh.stump);
-    if (!b) return;
-    const th = id === "door" ? sh.doorTh : id === "altar" ? sh.altarTh : thetaOf(frameAt(b, sh.footS), { x: Math.cos(sh.wispAz), y: 0, z: Math.sin(sh.wispAz) });
+    const st = padStand(this.world, sh, id);
+    if (!this.world.branches.has(st.branch)) return;
     const { gripOn, autoAlign } = this.creature;
-    this.creature = spawn(this.world, this.creature.animal, sh.stump, sh.footS, this.moveMode, th);
+    this.creature = spawn(this.world, this.creature.animal, st.branch, st.s, this.moveMode, st.th);
     this.creature.gripOn = gripOn;
     this.creature.autoAlign = autoAlign;
   }
@@ -899,6 +898,7 @@ export class TreeScene {
   replaceWorld(world: World, leaves: Leaf[], titles?: ReadonlyMap<string, string>): void {
     applySilks(world); // before the lookup: the animal may be standing on a thread
     const c = this.creature;
+
     const b = world.branches.get(c.head.b);
     if (!b) {
       const root = [...world.branches.values()].find((x) => x.parent === null && !x.silk);
@@ -1345,7 +1345,7 @@ export class TreeScene {
     const cpu0 = performance.now();
     const frameMs = this.lastRender > 0 ? now - this.lastRender : 0;
     this.lastRender = now;
-    const dt = Math.min(0.05, (now - this.last) / 1000);
+    const dt = Math.max(0, Math.min(0.05, (now - this.last) / 1000)); // (never negative: the first frame's rAF timestamp can predate `last`, and a negative step drained the grip)
     this.last = now;
     const t = now / 1000;
     step(this.world, this.creature, this.input(dt), dt);
@@ -1353,10 +1353,7 @@ export class TreeScene {
     this.updateCamera(dt);
     this.updateDay(now);
     WIND.value = t % 600; // (a small number keeps the float32 shader clock precise)
-    if (this.clouds) {
-      this.clouds.position.set(this.camera.position.x, 0, this.camera.position.z);
-      this.clouds.rotation.y = t * 0.0035;
-    }
+    if (this.clouds) this.clouds.rotation.y = t * 0.0012; // (the clouds stand in the world and drift slowly round it: flying up among them has parallax)
     const head = this.creature.flight ? this.creature.flight.p : bodyPoint(this.creature, 0).p;
     const headV = T3(head);
     const cs = Math.max(0.4, this.camScale);
