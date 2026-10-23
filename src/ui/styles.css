@@ -741,3 +741,25 @@ button.active {
 .progress-list li { padding: 2px 0; }
 .progress-list li.done { color: #9ad48c; }
 .progress-list li.locked { color: #a89a7a; }
+
+/* the pause menu, cheat sheet and key bindings */
+.pause-modal { width: min(860px, 94vw); max-height: 88vh; display: flex; flex-direction: column; }
+.pause-modal .modal-head { gap: 12px; }
+.pause-tabs { display: flex; gap: 6px; flex: 1; }
+.pause-tabs button, .pause-row button, .cheat-key { background: #14101cc0; color: #e8dcc0; border: 1px solid #8a6a48; padding: 2px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
+.pause-tabs button.active, .pause-row button.active { background: #5a3e24; border-color: #d8b868; }
+.pause-body { overflow-y: auto; padding: 4px 10px 12px; }
+.pause-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 5px 0; }
+.pause-label { min-width: 120px; color: #a89a7a; }
+.pause-help-inline, .pause-help { color: #a89a7a; font-size: 12px; }
+.pause-note { color: #ffe080; font-size: 12.5px; }
+.cheat-group h4 { margin: 12px 0 4px; color: #d8b868; }
+.cheat-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.cheat-table td { padding: 2px 6px; vertical-align: top; border-bottom: 1px solid #ffffff10; }
+.cheat-keys { white-space: nowrap; width: 150px; }
+.cheat-key { min-width: 44px; margin-right: 4px; border-bottom-width: 3px; }
+.cheat-key.empty { opacity: 0.5; }
+.cheat-key.capturing { background: #7a5a24; border-color: #ffe080; }
+.cheat-help { color: #a89a7a; }
+.cheat-notes { margin: 0; padding-left: 18px; font-size: 12.5px; }
+.tree-controls-short { position: absolute; left: 10px; bottom: 6px; font-size: 12px; color: #c8bc9a; background: #14101c90; padding: 2px 8px; }

@@ -17,6 +17,7 @@ import {
   type Animal, type Creature, type Input, type MoveMode,
 } from "./sim3";
 import type { GameEvent } from "../lib/tutorial";
+import { KEYS_STORAGE, actionFor, defaultBindings, parseBindings, serializeBindings, type ActionId, type Bindings } from "./keymap";
 import { BranchLabels, LABEL_MODES, type LabelMode } from "./labels";
 import { applySilks, parseSilks, restoreSilks, serializeSilks, SILKS, silkVersion } from "./silk";
 import { leafScale } from "./leafkind";
@@ -196,6 +197,12 @@ export class TreeScene {
   onLocked: ((a: Animal) => void) | null = null;
   /** What the player does (walked, entered a branch, leapt, zoomed, changed animal, clicked to walk): feeds the tutorial and the unlock counters. */
   onGame: ((e: GameEvent) => void) | null = null;
+  /** The player's key bindings (tree/keymap.ts); `keys` below holds the ACTIONS that are held, not raw keys. */
+  bindings: Bindings = defaultBindings();
+  /** Esc with nothing to cancel: the tree view opens its pause menu. */
+  onPause: (() => void) | null = null;
+  /** The pause menu is open: the simulation stands still (rendering, the camera and the clock go on). */
+  paused = false;
   private gameBranch = "";
   private gameD = 0;
   private gameAcc = 0;
@@ -312,6 +319,11 @@ export class TreeScene {
 
   constructor(private container: HTMLElement, world: World, startBranch: string, startS: number, animalIndex = 0) {
     this.world = world;
+    try {
+      this.bindings = parseBindings(localStorage.getItem(KEYS_STORAGE));
+    } catch {
+      /* the default keys */
+    }
     this.silkKey = typeof location !== "undefined" && location.pathname.includes("lizard3d") ? "biblio.v1.silkDemo" : "biblio.v1.silk";
     if (SILKS.length === 0) {
       try {
@@ -848,6 +860,8 @@ export class TreeScene {
     this.setPerfProfile(load(PERF_KEY, PERF_PROFILES, DEFAULT_PERF_PROFILE));
     this.wispMode = parseWispMode(load("biblio.v1.treeWisp", ["perch", "follow"] as const, "perch"));
     try {
+      this.bindings = parseBindings(localStorage.getItem(KEYS_STORAGE));
+      this.keys.clear();
       this.worldClock.set(parseClock(localStorage.getItem(CLOCK_KEY)));
     } catch {
       /* keep the current clock */
@@ -1218,10 +1232,22 @@ export class TreeScene {
 
   // ---- input ----------------------------------------------------------------------
 
+  /** Change the key bindings (remembered in localStorage; the menu calls it). */
+  setBindings(b: Bindings): void {
+    this.bindings = b;
+    this.keys.clear();
+    try {
+      localStorage.setItem(KEYS_STORAGE, serializeBindings(b));
+    } catch {
+      /* storage disabled */
+    }
+  }
+
   private key(e: KeyboardEvent, down: boolean): void {
     const k = e.key.toLowerCase();
+    const act = actionFor(this.bindings, k);
     if (!down) {
-      this.keys.delete(k); // always: a key released over an input must not stay "held"
+      if (act) this.keys.delete(act); // always: a key released over an input must not stay "held"
       return;
     }
     const t = e.target as HTMLElement | null;
@@ -1229,35 +1255,45 @@ export class TreeScene {
     if (e.ctrlKey || e.metaKey || e.altKey) return; // browser shortcuts (Ctrl+L, Ctrl+S…) are not game keys
     if (k === " " && this.enabled) e.preventDefault(); // also on auto-repeat, so a focused HUD button is not clicked on release
     if (!this.enabled || e.repeat) return;
-    this.keys.add(k);
-    if (k === " ") {
+    if (k === "escape") {
+      // Esc first stops a walk; with nothing to stop it opens the pause menu (it is never an action of its own: a bad binding cannot lock you out)
+      if (this.pilot) this.cancelPilot();
+      else this.onPause?.();
+      return;
+    }
+    if (!act) return;
+    const held: readonly ActionId[] = ["forward", "back", "left", "right", "leap", "climb", "silk"];
+    if (held.includes(act)) this.keys.add(act);
+    if (act === "leap") {
       this.leapQueued = true;
       e.preventDefault();
     }
-    const n = Number(k);
-    if (Number.isInteger(n) && n >= 1 && n <= ANIMAL_CATEGORIES.length) this.selectCategory(n);
-    if (k === "g") this.creature.gripOn = !this.creature.gripOn;
-    if (k === "v") this.cycleCamera();
-    if (k === "n") this.cycleLabels();
-    if (k === "x") this.silkQueued = true;
-    if (k === "c") cutThread(this.world, this.creature); // snip the thread you stand on / the rope you hang from
-    if (k === "h") this.toggleAutoAlign();
-    if (k === "m") this.toggleMoveMode();
-    if (k === "l") this.toggleLook();
-    if (k === "f") this.toggleFoliage();
-    if (k === "k") this.cycleShadows();
-    if (k === "p") this.setPixelated(!this.pixelated);
-    if (k === "i") this.togglePerfOverlay();
-    if (k === "escape") this.cancelPilot();
-    if (k === "+" || k === "=") this.zoom(1 / 1.2);
-    if (k === "-" || k === "_") this.zoom(1.2);
-    if (k === "e") {
+    if (act === "cat1") this.selectCategory(1);
+    if (act === "cat2") this.selectCategory(2);
+    if (act === "cat3") this.selectCategory(3);
+    if (act === "cat4") this.selectCategory(4);
+    if (act === "grip") this.creature.gripOn = !this.creature.gripOn;
+    if (act === "camera") this.cycleCamera();
+    if (act === "names") this.cycleLabels();
+    if (act === "silk") this.silkQueued = true;
+    if (act === "cut") cutThread(this.world, this.creature); // snip the thread you stand on / the rope you hang from
+    if (act === "autoAlign") this.toggleAutoAlign();
+    if (act === "move") this.toggleMoveMode();
+    if (act === "look") this.toggleLook();
+    if (act === "foliage") this.toggleFoliage();
+    if (act === "shadows") this.cycleShadows();
+    if (act === "pixel") this.setPixelated(!this.pixelated);
+    if (act === "perf") this.togglePerfOverlay();
+    if (act === "zoomIn") this.zoom(1 / 1.2);
+    if (act === "zoomOut") this.zoom(1.2);
+    if (act === "interact") {
       const near = this.nearestLeaf();
       const pad = this.nearestPad();
       // standing right at a pad means the pad; otherwise a leaf within reach wins, then any pad in range
       if (pad && (pad.k <= 0.6 || !near)) this.onPad?.(pad.pad.id);
       else if (near) this.onInteract?.(near);
     }
+    // (edit and layout are the tree view's: TreeView listens for them through `bindings`)
   }
 
   // ---- world ----------------------------------------------------------------------
@@ -1334,7 +1370,7 @@ export class TreeScene {
     const k = this.keys;
     if (this.pilot) {
       // any movement / action key takes over at once; otherwise the pilot presses the keys
-      if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright", " ", "shift", "x"].some((x) => k.has(x))) this.endPilot("cancelled", "keys");
+      if (["forward", "back", "left", "right", "leap", "climb", "silk"].some((x) => k.has(x))) this.endPilot("cancelled", "keys");
       else {
         const piloted = this.pilot.step(this.world, this.creature, dt);
         if (this.pilot.status !== "walking") this.endPilot(this.pilot.status, this.pilot.reason);
@@ -1344,15 +1380,15 @@ export class TreeScene {
       }
     }
     const input: Input = {
-      forward: k.has("w") || k.has("arrowup"),
-      back: k.has("s") || k.has("arrowdown"),
-      left: k.has("a") || k.has("arrowleft"),
-      right: k.has("d") || k.has("arrowright"),
+      forward: k.has("forward"),
+      back: k.has("back"),
+      left: k.has("left"),
+      right: k.has("right"),
       leap: this.leapQueued,
-      reach: k.has(" "),
-      climb: k.has("shift"),
+      reach: k.has("leap"),
+      climb: k.has("climb"),
       silk: this.silkQueued,
-      drop: k.has("x"),
+      drop: k.has("silk"),
     };
     if (this.camMode === "mouse") {
       // the free camera steers reach, jump aim, flight and the swing: hand the sim the direction it looks along
@@ -1406,8 +1442,10 @@ export class TreeScene {
     const dt = Math.max(0, Math.min(0.05, (now - this.last) / 1000)); // (never negative: the first frame's rAF timestamp can predate `last`, and a negative step drained the grip)
     this.last = now;
     const t = now / 1000;
-    step(this.world, this.creature, this.input(dt), dt);
-    this.trackGame();
+    if (!this.paused) {
+      step(this.world, this.creature, this.input(dt), dt);
+      this.trackGame();
+    }
     this.rig.update(this.world, this.creature, t, this.look);
     this.updateCamera(dt);
     this.updateDay(now);

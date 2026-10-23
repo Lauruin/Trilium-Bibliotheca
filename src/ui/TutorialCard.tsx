@@ -5,9 +5,10 @@
 
 import { useSyncExternalStore } from "react";
 import { currentStep, stepNumber } from "../lib/tutorial";
+import { fillKeys, firstKey, type ActionId, type Bindings } from "../tree/keymap";
 import { getTutorial, progressVersion, skipTutorial, subscribe } from "../state/progress";
 
-export function TutorialCard(props: { mouseCamera: boolean }): React.JSX.Element | null {
+export function TutorialCard(props: { mouseCamera: boolean; bindings: Bindings }): React.JSX.Element | null {
   useSyncExternalStore(subscribe, progressVersion);
   const t = getTutorial();
   const step = currentStep(t);
@@ -23,11 +24,11 @@ export function TutorialCard(props: { mouseCamera: boolean }): React.JSX.Element
           skip
         </button>
       </div>
-      <p>{props.mouseCamera ? step.mouse : step.keys}</p>
-      <p className="tutorial-alt">{props.mouseCamera ? step.keys : step.mouse}</p>
+      <p>{fillKeys(props.mouseCamera ? step.mouse : step.keys, props.bindings)}</p>
+      <p className="tutorial-alt">{fillKeys(props.mouseCamera ? step.keys : step.mouse, props.bindings)}</p>
       <div className="tutorial-keys">
-        {step.kbd.map((k) => (
-          <kbd key={k}>{k}</kbd>
+        {step.kbd.map((id) => (
+          <kbd key={id}>{firstKey(props.bindings, id as ActionId)}</kbd>
         ))}
       </div>
     </aside>

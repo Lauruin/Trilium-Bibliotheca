@@ -24,13 +24,16 @@ import type { LibraryTree } from "../types";
 import { dirty, loadNow, saveNow, setSyncOn, syncOn } from "../state/savestore";
 import { inspectYggdrasil } from "../lib/yggdrasil";
 import { setTreeBridge } from "../tree/bridge";
-import { CLOCK_MODES, FAST_MINUTES, hhmm, type ClockMode } from "../tree/clock";
+import { actionFor, defaultBindings, firstKey, type Bindings } from "../tree/keymap";
+import { hhmm } from "../tree/clock";
 import { PLACES, placeOf, visiblePlaces } from "../tree/places";
 import { requirementText } from "../lib/unlocks";
 import { CATALOG, bump, can, canAnimal, ensureLoaded, flushProgress, game, getCounters, progressVersion, reloadProgress, subscribe } from "../state/progress";
 import { BranchPanel } from "./BranchPanel";
 import { LeafView, type LeafViewNote } from "./LeafView";
+import { ClockControls } from "./ClockControls";
 import { PerfOverlay } from "./PerfOverlay";
+import { PauseMenu } from "./PauseMenu";
 import { ProgressSection } from "./ProgressSection";
 import { TutorialCard } from "./TutorialCard";
 import { ShrinePanel, type ShrineSection } from "./ShrinePanel";
@@ -80,6 +83,20 @@ export function TreeView(props: {
   const [busy, setBusy] = useState(false);
   /** The shrine panel (E at the altar). */
   const [shrineOpen, setShrineOpen] = useState(false);
+  /** The pause menu (Esc): controls, graphics, time, tutorial. */
+  const [pauseOpen, setPauseOpen] = useState(false);
+  /** The key bindings (mirror of the scene's: the menu and the tutorial card show them). */
+  const [bindings, setBindingsState] = useState<Bindings>(defaultBindings);
+  const bindingsRef = useRef(bindings);
+  bindingsRef.current = bindings;
+  const editIdRef = useRef<string | null>(null);
+  editIdRef.current = editId;
+  const pauseOpenRef = useRef(false);
+  pauseOpenRef.current = pauseOpen;
+  const changeBindings = (b: Bindings): void => {
+    sceneRef.current?.setBindings(b);
+    setBindingsState(b);
+  };
   /** The leaf view (the ant's reader): the leaf being read, or null. */
   const [leafView, setLeafView] = useState<LeafViewNote | null>(null);
   /** Short plain-text excerpts of the notes (hover preview), filled by the background loader. */
@@ -168,6 +185,10 @@ export function TreeView(props: {
       const near = scene.nearestLeaf(140);
       if (near) openLeaf(near); // choosing the ant next to a leaf walks onto it
     };
+    setBindingsState(scene.bindings);
+    scene.onPause = () => {
+      if (!editIdRef.current) setPauseOpen(true); // (Esc in the branch editor belongs to the editor)
+    };
     scene.setShrine(true);
     scene.moveToShrine(); // you start (and arrive back from the library) at the shrine's door
     scene.onPad = (id) => {
@@ -197,7 +218,7 @@ export function TreeView(props: {
     sceneRef.current = scene;
     (window as unknown as { __treeScene: TreeScene }).__treeScene = scene;
     scene.start();
-    if (syncOn() && client0()) void loadNow(client0()!).then((r) => r.ok && r.what === "loaded" && (scene.reloadPrefs(), reloadProgress()));
+    if (syncOn() && client0()) void loadNow(client0()!).then((r) => r.ok && r.what === "loaded" && (scene.reloadPrefs(), setBindingsState(scene.bindings), reloadProgress()));
     const minutes = window.setInterval(() => document.visibilityState === "visible" && scene.enabled && bump("minutes", 1), 60000);
     // leaf size = note length: measured lazily (the first batch is the cache), applied as it arrives
     const ctrl = new AbortController();
@@ -252,12 +273,13 @@ export function TreeView(props: {
     const onKey = (e: KeyboardEvent): void => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
-      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || !props.enabled || shrineOpenRef.current) return;
-      if (e.key.toLowerCase() === "y") {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || !props.enabled || shrineOpenRef.current || pauseOpenRef.current) return;
+      const act = actionFor(bindingsRef.current, e.key);
+      if (act === "layout") {
         toggleModeRef.current(); // layout: forest / hub
         return;
       }
-      if (e.key.toLowerCase() !== "b") return;
+      if (act !== "edit") return;
       if (!can("tool:edit")) {
         notify("info", "The branch editor unlocks after the tutorial (finish or skip it), or switch on “unlock everything” at the altar.");
         return;
@@ -310,8 +332,11 @@ export function TreeView(props: {
   };
 
   useEffect(() => {
-    if (sceneRef.current) sceneRef.current.enabled = props.enabled && !shrineOpen && !leafView;
-  }, [props.enabled, layout, shrineOpen, leafView]);
+    if (sceneRef.current) {
+      sceneRef.current.enabled = props.enabled && !shrineOpen && !leafView && !pauseOpen;
+      sceneRef.current.paused = pauseOpen;
+    }
+  }, [props.enabled, layout, shrineOpen, leafView, pauseOpen]);
 
   const readOnlyHost = !!state.settings?.proxy && state.host.server?.readOnly === true;
   const doSave = async (): Promise<void> => {
@@ -328,6 +353,7 @@ export function TreeView(props: {
     const r = await loadNow(client);
     if (r.ok && r.what === "loaded") {
       sceneRef.current?.reloadPrefs();
+      if (sceneRef.current) setBindingsState(sceneRef.current.bindings);
       reloadProgress();
     }
     setSync((x) => ({ ...x, busy: false, msg: !r.ok ? `Could not load: ${r.message}` : r.what === "loaded" ? "Loaded from Trilium and merged." : "Nothing is saved in Trilium yet." }));
@@ -378,58 +404,7 @@ export function TreeView(props: {
       title: "Clock",
       help: "What time it is in the world. Real time follows your clock (a real day is the world's day), fixed holds one hour, fast runs a whole day in a few minutes. The sun, moon, sky, stars and lights follow; at night the wisp is a lantern.",
       body: (
-        <>
-          <div className="shrine-row">
-            {CLOCK_MODES.map((m: ClockMode) => (
-              <button
-                key={m}
-                data-testid={`clock-${m}`}
-                className={hud?.clock.mode === m ? "active" : ""}
-                onClick={() => hud && sceneRef.current?.setClock({ ...hud.clock, mode: m })}
-              >
-                {m === "real" ? "real time" : m === "fixed" ? "fixed hour" : "fast"}
-              </button>
-            ))}
-            <span data-testid="clock-time">{hud ? hhmm(hud.hour) : ""}</span>
-          </div>
-          {hud?.clock.mode === "fixed" && (
-            <label className="shrine-row">
-              hour{" "}
-              <input
-                type="range"
-                data-testid="clock-hour"
-                min={0}
-                max={24}
-                step={0.25}
-                value={hud.clock.hour}
-                onChange={(e) => sceneRef.current?.setClock({ ...hud.clock, hour: Number(e.target.value) })}
-              />{" "}
-              {hhmm(hud.clock.hour)}
-            </label>
-          )}
-          {hud?.clock.mode === "fast" && (
-            <div className="shrine-row">
-              a day lasts{" "}
-              {FAST_MINUTES.map((m) => (
-                <button key={m} className={hud.clock.fastMinutes === m ? "active" : ""} onClick={() => sceneRef.current?.setClock({ ...hud.clock, fastMinutes: m })}>
-                  {m} min
-                </button>
-              ))}
-            </div>
-          )}
-          <label className="shrine-row">
-            night brightness{" "}
-            <input
-              type="range"
-              data-testid="clock-night"
-              min={0}
-              max={1}
-              step={0.05}
-              value={hud?.clock.night ?? 0.5}
-              onChange={(e) => hud && sceneRef.current?.setClock({ ...hud.clock, night: Number(e.target.value) })}
-            />
-          </label>
-        </>
+        <ClockControls hud={hud} scene={sceneRef.current} />
       ),
     },
     {
@@ -516,6 +491,18 @@ export function TreeView(props: {
           }}
         />
       )}
+      {pauseOpen && sceneRef.current && (
+        <PauseMenu
+          scene={sceneRef.current}
+          hud={hud}
+          bindings={bindings}
+          onBindings={changeBindings}
+          layoutMode={mode}
+          onToggleLayout={toggleMode}
+          onEnterLibrary={props.onEnterLibrary}
+          onClose={() => setPauseOpen(false)}
+        />
+      )}
       {leafView && (
         <LeafView
           note={leafView}
@@ -596,7 +583,7 @@ export function TreeView(props: {
               )}
             </div>
           )}
-          {!shrineOpen && !leafView && <TutorialCard mouseCamera={hud.camera === "mouse"} />}
+          {!shrineOpen && !leafView && !pauseOpen && <TutorialCard mouseCamera={hud.camera === "mouse"} bindings={bindings} />}
           <div className="tree-animals" onMouseDown={(e) => e.preventDefault()}>
             {ANIMAL_CATEGORIES.map((cat, ci) => (
               <div key={cat.label} className="tree-cat">
@@ -676,9 +663,8 @@ export function TreeView(props: {
               <i style={{ width: `${hud.grip * 100}%`, background: hud.grip > 0.5 ? "#ffe080" : hud.grip > 0.25 ? "#ff9a40" : "#ff4a38" }} />
             </div>
           )}
-          <div className="tree-controls">
-            {hud.moveMode === "guided" ? "W up the branch · S down · A/D turn on it (left / right as you face)" : "W forward · A/D steer the heading"} · M move guided/free · hold Space to aim a jump (arc preview, auto-target), release to leap (snake: hold = reach, steer with WASD; squirrel: W dive / S flare; bee, dragonfly, blue jay: Space = take off, then Space up / Shift down or land; jay: W dive, S climb) ·
-            X = spider silk (tap = drop; then hold X down, Space up, WASD swing, Shift let go; C cuts a thread) · walking up past a side branch's base climbs it, hold Shift to stay (roots and threads: Shift climbs in) · B edit this branch · Y layout forest/hub · E read · click = walk there (double-click a leaf = read it; any key stops) · 1/2/3 animal category (again = next) · G grip {hud.gripOn ? "on" : "off"} · H auto-align (free mode) · N names · F foliage · K shadows · V camera (chase / level / fixed / mouse: drag to orbit) · L look · I performance · wheel/+/− zoom · P pixels · E at the shrine: the door (library), the altar (tools), the wisp (search)
+          <div className="tree-controls-short" data-testid="tree-controls-short">
+            Esc: menu (controls, graphics, time) · {firstKey(bindings, "interact")} read / use · click = walk there · hold {firstKey(bindings, "leap")} to aim a jump{hud.gripOn ? "" : " · grip off"}
           </div>
         </>
       )}

@@ -639,6 +639,62 @@ try {
     await page.getByRole("dialog", { name: "Shrine" }).waitFor({ timeout: 15000 });
     if ((await page.locator('[data-testid="shrine-library"]').count()) > 0 && (await page.locator('[data-testid="shrine-wisp"]').count()) > 0) ok("E at the altar opens the shrine panel (library door + wisp sections)");
     else fail("shrine panel lacks its sections");
+    // The pause menu (Esc): the game stands still; a cheat sheet generated from the actions; keys can be rebound and the new key works; graphics + time + tutorial live here too
+    {
+      await page.keyboard.press("Escape"); // closes the shrine panel
+      await page.getByRole("dialog", { name: "Shrine" }).waitFor({ state: "detached", timeout: 10000 });
+      await page.keyboard.press("Escape"); // nothing to cancel: the pause menu
+      await page.getByTestId("pause-menu").waitFor({ timeout: 20000 });
+      if (await page.evaluate(() => window.__treeScene.paused === true && window.__treeScene.enabled === false)) ok("pause menu: Esc opens it and the simulation is paused");
+      else fail("Esc did not pause the scene");
+      await page.getByTestId("pause-tab-controls").click();
+      const slots = await page.locator('[data-testid^="bind-"]').count();
+      if (slots >= 50 && (await page.getByTestId("cheatsheet").innerText()).includes("Leap / reach / take off")) ok(`pause menu: the controls tab is a structured cheat sheet (${slots} key slots, grouped)`);
+      else fail(`cheat sheet looks wrong (${slots} slots)`);
+      await page.getByTestId("bind-grip-0").click();
+      await page.keyboard.press("z");
+      await page.waitForFunction(() => JSON.stringify(window.__treeScene.bindings.grip) === '["z"]', undefined, { timeout: 15000 });
+      if ((await page.getByTestId("bind-grip-0").innerText()) === "Z" && (await page.evaluate(() => localStorage.getItem("biblio.v1.keys"))).includes('"grip":["z"]')) ok("pause menu: a key can be rebound (G -> Z) and is remembered");
+      else fail("rebinding grip to Z did not take");
+      await page.getByTestId("bind-camera-0").click();
+      await page.keyboard.press("z"); // a key that is taken moves over, and the menu says so
+      await page.waitForFunction(() => window.__treeScene.bindings.camera[0] === "z" && window.__treeScene.bindings.grip.length === 0, undefined, { timeout: 15000 });
+      if ((await page.getByTestId("controls-note").innerText()).includes("lost it")) ok("pause menu: taking a bound key says who lost it");
+      else fail("no note about the taken key");
+      await page.getByTestId("bind-grip-0").click();
+      await page.keyboard.press("Escape"); // Esc cancels the capture and does not close the menu
+      await page.waitForTimeout(300);
+      if ((await page.getByTestId("pause-menu").count()) === 1) ok("pause menu: Esc while rebinding only cancels the rebinding");
+      else fail("Esc closed the menu while a key was being rebound");
+      await page.getByTestId("controls-reset").click();
+      await page.waitForFunction(() => JSON.stringify(window.__treeScene.bindings.grip) === '["g"]' && JSON.stringify(window.__treeScene.bindings.camera) === '["v"]', undefined, { timeout: 15000 });
+      ok("pause menu: reset restores the default keys");
+      await page.getByTestId("bind-grip-0").click();
+      await page.keyboard.press("j");
+      await page.waitForFunction(() => JSON.stringify(window.__treeScene.bindings.grip) === '["j"]', undefined, { timeout: 15000 });
+      await page.getByTestId("pause-tab-graphics").click();
+      await page.getByTestId("gfx-profile-fast").click();
+      await page.getByTestId("gfx-shadows-off").click();
+      if (await page.evaluate(() => window.__treeScene.perfProfile === "fast" && window.__treeScene.shadowQuality === "off")) ok("pause menu: graphics settings (profile, shadows) change the scene");
+      else fail("graphics tab did not change the scene");
+      await page.getByTestId("gfx-shadows-medium").click();
+      await page.getByTestId("pause-tab-game").click();
+      if ((await page.getByTestId("pause-restart-tutorial").count()) === 1 && (await page.getByTestId("clock-real").count()) === 1) ok("pause menu: the game tab has the clock and the tutorial restart");
+      else fail("game tab lacks the clock or the tutorial restart");
+      await page.keyboard.press("Escape");
+      await page.getByTestId("pause-menu").waitFor({ state: "detached", timeout: 10000 });
+      const g0 = await page.evaluate(() => window.__treeScene.creature.gripOn);
+      await page.keyboard.press("j"); // the rebound key now toggles the grip
+      const g1 = await page.evaluate(() => window.__treeScene.creature.gripOn);
+      await page.keyboard.press("g"); // and the old one does nothing
+      const g2 = await page.evaluate(() => window.__treeScene.creature.gripOn);
+      await page.keyboard.press("j");
+      if (g0 === true && g1 === false && g2 === false && (await page.evaluate(() => window.__treeScene.creature.gripOn)) === true) ok("pause menu: the rebound key does the action, the old key does not");
+      else fail(`rebound grip key misbehaves: ${g0} ${g1} ${g2}`);
+      await page.evaluate(() => window.__treeScene.setBindings(JSON.parse(JSON.stringify({ ...window.__treeScene.bindings, grip: ["g"] }))));
+      await page.keyboard.press("e"); // back to the shrine panel for the next steps (the animal still stands at the altar)
+      await page.getByRole("dialog", { name: "Shrine" }).waitFor({ timeout: 15000 });
+    }
     // The unlock system: the Progress section lists what is open; switching "unlock everything" off locks the animals again; the tutorial replays and skips
     {
       await page.getByTestId("shrine-progress").waitFor({ timeout: 15000 });

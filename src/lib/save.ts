@@ -24,6 +24,7 @@ export const SETTING_KEYS = [
   "biblio.v1.treeClock",
   "biblio.v1.reader",
   "biblio.v1.unlockAll",
+  "biblio.v1.keys",
 ] as const;
 
 export interface SaveProgress {
@@ -50,7 +51,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 const ID = /^[A-Za-z0-9_.:-]{1,60}$/;
 const MAX_COUNTERS = 100;
 const MAX_UNLOCKED = 200;
-const MAX_SETTING = 600;
+const MAX_SETTING = 2000;
 const MAX_COUNT = 1e9;
 
 /** Coerce arbitrary JSON into a SaveData. Never throws. */
