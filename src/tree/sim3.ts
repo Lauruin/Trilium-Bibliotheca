@@ -64,7 +64,7 @@ import {
   add, cross, dist, entryTheta, frameAt, len, lerp3, mul, nearestOnBranch, normalAt, norm, radiusAt, sub, surfacePoint, thetaOf, v3, wrapAngle,
   type Branch, type Nearest, type V3, type World,
 } from "./world3";
-import { SILK_ENTRY, addSilk, newSilkId } from "./silk";
+import { SILKS, SILK_ENTRY, addSilk, newSilkId, removeSilk } from "./silk";
 
 export interface Node {
   /** Distance behind the head along the trail. */
@@ -226,7 +226,7 @@ export const SPIDER: Animal = {
     { node: 1, side: 1, group: 1, lead: -6 }, { node: 1, side: -1, group: 0, lead: -6 },
   ],
   speed: 85, turnRate: 3, stride: 11, splay: 15, stepTime: 0.07, body: "#3a2a22", belly: "#7a4a30", scale: 1,
-  leap: null, silk: { maxLen: 300, reel: 60, pump: 170 },
+  leap: null, silk: { maxLen: 1e9, reel: 90, pump: 170 },
   legShape: { out: 1.5, up: 2.3, thick: 0.28 }, clings: true,
 };
 
@@ -245,7 +245,7 @@ export const JUMPER: Animal = {
   ],
   speed: 95, turnRate: 3.2, stride: 10, splay: 14, stepTime: 0.06, body: "#2b2330", belly: "#c4552a", scale: 1,
   colors: ["#2b2330", "#2b2330", "#2b2330", "#c4552a", "#c4552a"],
-  leap: { speed: 560, up: 400, gravity: 1, steer: false }, silk: { maxLen: 300, reel: 60, pump: 170 },
+  leap: { speed: 560, up: 400, gravity: 1, steer: false }, silk: { maxLen: 1e9, reel: 90, pump: 170 },
   legShape: { out: 1.4, up: 2, thick: 0.3 }, clings: true,
 };
 
@@ -496,11 +496,18 @@ export interface Input {
   back: boolean;
   /** Held: turn onto a side branch whose base you are standing in (Shift). */
   climb: boolean;
-  /** Edge-triggered (key X): spiders drop on a silk rope / let go of it. */
+  /** Edge-triggered (key X): a spider on a surface drops on a silk rope. */
   silk: boolean;
+  /** Held (key X): a hanging spider lets the rope out (goes down). */
+  drop: boolean;
+  /**
+   * The direction the player is LOOKING (the mouse camera's forward vector, unit): reach, jump aim, flight and the swing follow it, so the
+   * free camera steers them. Absent in every other camera mode (the keys A/D/W/S steer as before).
+   */
+  aimDir?: V3;
 }
 
-export const NO_INPUT: Input = { forward: false, left: false, right: false, leap: false, reach: false, back: false, climb: false, silk: false };
+export const NO_INPUT: Input = { forward: false, left: false, right: false, leap: false, reach: false, back: false, climb: false, silk: false, drop: false };
 
 function maxD(a: Animal): number {
   return Math.max(...a.nodes.map((n) => n.d));
@@ -660,8 +667,8 @@ export const GUIDED = {
   bend: 0.75,
   /** Heading offset (rad) from the branch axis while only A/D are held: the animal creeps around the branch. */
   across: 1.35,
-  /** Speed factor for A/D alone. */
-  creep: 0.5,
+  /** Speed factor for A/D alone (x up to 2 on a thick trunk, radius >= 120: going round a fat trunk would take ages at walking pace). */
+  creep: 0.95,
   /** Cap (rad/s) on how fast the animal may go round a branch (x 0.4..1: slower on a branch narrower than half its width). */
   thin: 1.6,
   /** Speed factor while the heading is a quarter turn (or more) from the wanted one: it swivels more than it walks. */
@@ -719,7 +726,7 @@ function steerGuided(world: World, c: Creature, input: Input, dt: number, fit: n
     c.omega = 0;
   }
   if (fwd === 0 && lat === 0) return { target: 0, cap: Infinity };
-  const v = (fwd !== 0 ? a.speed : Math.min(a.speed * GUIDED.creep, around * r)) * (GUIDED.turnSpeed + (1 - GUIDED.turnSpeed) * Math.max(0, Math.cos(err)) ** 3);
+  const v = (fwd !== 0 ? a.speed : Math.min(a.speed * GUIDED.creep * clamp(r / 60, 1, 2), around * r)) * (GUIDED.turnSpeed + (1 - GUIDED.turnSpeed) * Math.max(0, Math.cos(err)) ** 3);
   // `cap`: slowing down is immediate (the animal swivels, it does not slide on; `step` applies it after the speed eased), and never
   // faster round the bark than `thin` rad/s
   const sn = Math.abs(Math.sin(c.phi));
@@ -796,7 +803,10 @@ export function step(world: World, c: Creature, input: Input, dt: number): void 
         return;
       } else {
         aiming = true;
-        if (!fresh) updateAim(c.aim, input, dt);
+        if (!fresh) {
+          updateAim(c.aim, input, dt);
+          if (input.aimDir) lookAim(world, c, input, dt);
+        }
       }
     }
   }
@@ -964,6 +974,7 @@ function updateShake(c: Creature): void {
 }
 
 function moveHead(world: World, c: Creature, dS: number, dW: number, travelled: number): void {
+  let used = 1; // share of `travelled` that was real movement (the head stopped at a tip / at a stump's foot)
   let b = world.branches.get(c.head.b)!;
   let s = c.head.s + dS;
   let th = wrapAngle(c.head.th + dW / radiusAt(b, c.head.s));
@@ -1011,7 +1022,12 @@ function moveHead(world: World, c: Creature, dS: number, dW: number, travelled: 
         }
       }
       if (best) transfer(best, s - b.total);
-      else s = b.total;
+      else {
+        // the tip: the head stops here. The distance walked counts only as far as the head really moved, or the body (which follows the trail by
+        // distance) would pile up on the end while W is held ("bunched up" at the top of a trunk)
+        used = dS > 0 ? clamp((b.total - c.head.s) / dS, 0, 1) : 0;
+        s = b.total;
+      }
     }
   } else if (s < 0) {
     const parent = b.parent ? world.branches.get(b.parent) : undefined;
@@ -1023,6 +1039,7 @@ function moveHead(world: World, c: Creature, dS: number, dW: number, travelled: 
       c.noAuto = b.silk ? undefined : b.id; // we just came down out of this branch's base (a ground root: up onto the stump): do not walk straight back in
       transfer(parent, (b.attachS ?? parent.total) + s);
     } else {
+      used = dS < 0 ? clamp(c.head.s / -dS, 0, 1) : 0; // (same as at a tip: only the distance really walked counts)
       s = 0; // the foot of a stump (no parent): the star junction still applies right at the bottom
       const r = dS < 0 && !c.climbHeld && Math.abs(c.phi) > STAR_FACING ? starRoot(world, b, 0, th, c.noAuto) : null;
       if (r) transfer(r, nearestOnBranch(r, surfacePoint(b, 0, th).p).s);
@@ -1063,8 +1080,17 @@ function moveHead(world: World, c: Creature, dS: number, dW: number, travelled: 
     c.phi = Math.atan2(dotV(wh, crossAround(f, th)), dotV(wh, f.t));
   }
   c.head = { b: b.id, s, th };
-  c.D += travelled;
-  pushTrail(c, { D: c.D, p: surfacePoint(b, s, th).p, surf: { ...c.head } });
+  c.D += travelled * used;
+  const sample = { D: c.D, p: surfacePoint(b, s, th).p, surf: { ...c.head } };
+  const last = c.trail[c.trail.length - 1];
+  if (used === 0 && last && last.surf !== null && last.D === c.D) {
+    c.trail[c.trail.length - 1] = sample; // nothing was walked: the head sample is just refreshed
+    const prev = c.trail[c.trail.length - 2];
+    if (prev && prev.surf === null && prev.D === c.D) c.trail.splice(c.trail.length - 2, 1); // (and an airborne sample at the very same D, from the landing, would shadow it)
+  } else {
+    if (used === 0 && last && last.D === c.D) sample.D = c.D += 0.01; // (the sample before was an airborne one: keep D strictly increasing)
+    pushTrail(c, sample);
+  }
 }
 
 const dotV = (a: V3, b: V3): number => a.x * b.x + a.y * b.y + a.z * b.z;
@@ -1154,6 +1180,31 @@ function updateAim(aim: Aim, input: Input, dt: number): void {
   aim.yaw = clamp(aim.yaw + ((input.right ? 1 : 0) - (input.left ? 1 : 0)) * 1.6 * dt, -AIM_YAW, AIM_YAW);
   aim.pitch = clamp(aim.pitch + ((input.forward ? 1 : 0) - (input.back ? 1 : 0)) * dt, AIM_PITCH_MIN, AIM_PITCH_MAX);
   aim.charge = aimCharge(aim.t);
+}
+
+/**
+ * The mouse camera steers the jump aim: yaw (about the surface normal, relative to the heading) and pitch follow the look direction at up to ~3.5 rad/s;
+ * a manual A/D / W/S in the same frame wins for that axis.
+ */
+function lookAim(world: World, c: Creature, input: Input, dt: number): void {
+  const aim = c.aim!;
+  const look = input.aimDir!;
+  const b = world.branches.get(c.head.b);
+  const lp = c.animal.leap;
+  if (!b || !lp) return;
+  const f = frameAt(b, c.head.s);
+  const n = normalAt(f, c.head.th);
+  const h = headingFromFrame(f, c.head.th, c.phi);
+  const p = sub(look, mul(n, dotV(look, n)));
+  const rate = 3.5 * dt;
+  if (!input.left && !input.right && len(p) > 1e-3) {
+    const want = clamp(Math.atan2(dotV(cross(h, n), p), dotV(h, p)), -AIM_YAW, AIM_YAW);
+    aim.yaw = clamp(aim.yaw + clamp(want - aim.yaw, -rate, rate), -AIM_YAW, AIM_YAW);
+  }
+  if (!input.forward && !input.back) {
+    const want = clamp(Math.asin(clamp(dotV(look, n), -1, 1)) - Math.atan2(lp.up, lp.speed), AIM_PITCH_MIN, AIM_PITCH_MAX);
+    aim.pitch = clamp(aim.pitch + clamp(want - aim.pitch, -rate, rate), AIM_PITCH_MIN, AIM_PITCH_MAX);
+  }
 }
 
 /** Launch velocity: heading turned by `yaw` about the surface normal, elevation = default leap angle + `pitch`, scaled by `charge`. */
@@ -1519,14 +1570,19 @@ function flightSub(world: World, c: Creature, input: Input, dt: number): void {
   const f = c.flight!;
   const fl = c.animal.flight!;
   f.t += dt;
-  const turn = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  let turn = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  // the mouse camera steers: the heading turns towards where the camera looks (A/D still win while pressed)
+  const look = input.aimDir;
+  if (look && turn === 0 && Math.hypot(look.x, look.z) > 1e-3) turn = clamp(wrapAngle(Math.atan2(look.z, look.x) - f.yaw) * 3, -1, 1);
 
   if (fl.kind === "hover") {
     // fly where you point: W forward, S back (half speed), A/D yaw, Space up, Shift down; velocity eases to the input
     f.yaw = wrapAngle(f.yaw + turn * fl.turnRate * dt);
     const along = (input.forward ? 1 : 0) - (input.back ? 0.5 : 0);
     const vert = (input.reach ? 1 : 0) - (input.climb ? 1 : 0);
-    const goal = v3(Math.cos(f.yaw) * along * fl.speed, vert * fl.climb, Math.sin(f.yaw) * along * fl.speed);
+    const lift = look ? clamp(look.y, -0.9, 0.9) : 0; // looking up / down: W flies up / down too
+    const flat = Math.sqrt(1 - lift * lift);
+    const goal = v3(Math.cos(f.yaw) * along * fl.speed * flat, vert * fl.climb + along * lift * fl.speed, Math.sin(f.yaw) * along * fl.speed * flat);
     const k = Math.min(1, fl.accel * dt);
     f.v = add(f.v, mul(sub(goal, f.v), k));
     f.speed = len(f.v);
@@ -1538,7 +1594,8 @@ function flightSub(world: World, c: Creature, input: Input, dt: number): void {
     // Shift = LANDING MODE: flare to 1.15 x stall, level out, and let a magnet steer toward the best branch ahead.
     const cruise = wingCruise(fl), stall = wingStall(fl);
     const K = 0.9 * (cruise - stall);
-    const pitchIn = (input.back ? 1 : 0) - (input.forward ? 1 : 0); // S climbs, W dives
+    let pitchIn = (input.back ? 1 : 0) - (input.forward ? 1 : 0); // S climbs, W dives
+    if (look && pitchIn === 0 && !input.climb) pitchIn = clamp((Math.asin(clamp(look.y, -1, 1)) - f.pitch) * 3, -1, 1); // the camera's elevation
     const flapping = input.reach || input.leap;
     const landing = input.climb;
     const tgt = landing ? pickLandTarget(world, f) : null;
@@ -1678,12 +1735,26 @@ function flightContacts(world: World, c: Creature, input: Input, p0: V3): boolea
 
 /** A/D yaw the stretching head about the origin's normal (D = right, like surface steering), W/S pitch it. */
 function steerReach(r: Reach, input: Input, turnRate: number, dt: number): void {
-  const yaw = ((input.right ? 1 : 0) - (input.left ? 1 : 0)) * turnRate * dt;
+  let yaw = ((input.right ? 1 : 0) - (input.left ? 1 : 0)) * turnRate * dt;
+  let pitchKey = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
+  if (input.aimDir) {
+    // the mouse camera steers the stretching head: yaw about the origin's normal towards the look direction, pitch towards its elevation
+    const flatL = sub(input.aimDir, mul(r.up, dotV(input.aimDir, r.up)));
+    const flatD = sub(r.dir, mul(r.up, dotV(r.dir, r.up)));
+    if (yaw === 0 && len(flatL) > 1e-3 && len(flatD) > 1e-3) {
+      const err = Math.atan2(dotV(cross(flatD, r.up), flatL), dotV(flatD, flatL)); // + = right (right = dir x up)
+      yaw = clamp(err, -turnRate * dt * 1.5, turnRate * dt * 1.5);
+    }
+    if (pitchKey === 0) {
+      const err = Math.asin(clamp(dotV(input.aimDir, r.up), -1, 1)) - Math.asin(clamp(dotV(r.dir, r.up), -1, 1));
+      pitchKey = clamp(err * 3, -1, 1);
+    }
+  }
   if (yaw !== 0) {
     const cs = Math.cos(yaw), sn = Math.sin(yaw), k = dotV(r.up, r.dir) * (1 - cs);
     r.dir = norm(add(add(mul(r.dir, cs), mul(cross(r.dir, r.up), sn)), mul(r.up, k)));
   }
-  const pitch = ((input.forward ? 1 : 0) - (input.back ? 1 : 0)) * 1.2 * dt;
+  const pitch = pitchKey * 1.2 * dt;
   if (pitch !== 0) {
     const y = dotV(r.dir, r.up);
     const flat = sub(r.dir, mul(r.up, y));
@@ -1832,6 +1903,33 @@ function letGo(world: World, c: Creature): void {
   c.air = { p: d.p, v: d.v, t: 0, from: { ...d.from }, ignore: d.clear || !insideBark(world, d.from.b, d.p) ? 0 : 0.3, slip: false, skip: id };
 }
 
+/**
+ * Cut a thread: the rope you hang on (no thread is kept: you fall) or the thread you are standing on (it is gone from the world and from
+ * the store: you fall too, never fatally: the usual recovery puts you on a branch below). Null when there is nothing to cut.
+ */
+export function cutThread(world: World, c: Creature): "rope" | "thread" | null {
+  if (c.silk) {
+    const d = c.silk;
+    c.silk = null;
+    c.air = { p: d.p, v: d.v, t: 0, from: { ...d.from }, ignore: d.clear || !insideBark(world, d.from.b, d.p) ? 0 : 0.3, slip: false };
+    return "rope";
+  }
+  const b = world.branches.get(c.head.b);
+  if (!b || !b.silk || c.air || c.flight || c.reach) return null;
+  const id = b.id;
+  const rec = SILKS.find((r) => r.id === id);
+  const anchor: SurfacePos = rec && world.branches.has(rec.ref.b) ? { ...rec.ref } : world.branches.has(b.parent ?? "") ? { b: b.parent as string, s: b.attachS ?? 0, th: 0 } : { ...c.head };
+  const sp = surfacePoint(b, c.head.s, c.head.th);
+  const fix = (pos: SurfacePos): SurfacePos => (pos.b === id ? { ...anchor } : pos);
+  c.trail = c.trail.map((t) => (t.surf?.b === id ? { ...t, surf: null } : t));
+  c.feet.forEach((f) => { f.at = fix(f.at); f.from = fix(f.from); f.to = fix(f.to); f.t = -1; });
+  removeSilk(world, id);
+  c.head = fix(c.head);
+  c.air = { p: sp.p, v: v3(0, -30, 0), t: 0, from: { ...anchor }, ignore: 0.4, slip: true };
+  c.speedNow = 0;
+  return "thread";
+}
+
 /** Reeled all the way up: back on the anchor surface, no thread kept. */
 function climbBack(world: World, c: Creature): void {
   const d = c.silk!;
@@ -1854,15 +1952,18 @@ function landOnRope(world: World, c: Creature, b: Branch, s: number): void {
 function stepDangle(world: World, c: Creature, input: Input, dt: number): void {
   const d = c.silk!;
   const sp = c.animal.silk!;
-  if (input.silk) {
-    letGo(world, c);
+  if (input.climb) {
+    letGo(world, c); // Shift = let go
     return;
   }
   d.t += dt;
   const turn = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-  d.yaw = wrapAngle(d.yaw + turn * SWING_TURN * dt);
-  // S lets the rope out (slowly), W reels it in a bit faster; reeled all the way up = climb back onto the anchor
-  d.len += ((input.back ? 1 : 0) - (input.forward ? REEL_UP : 0)) * sp.reel * dt;
+  // the mouse camera turns the facing (W / S then swing along where you look); in every other camera mode the facing stays as it was at the drop
+  const look = input.aimDir;
+  if (look && Math.hypot(look.x, look.z) > 1e-3) d.yaw = wrapAngle(d.yaw + clamp(wrapAngle(Math.atan2(look.z, look.x) - d.yaw), -SWING_TURN * 2.5 * dt, SWING_TURN * 2.5 * dt));
+  // X held lets the rope out (a long rope goes faster), Space held reels it in (faster still); reeled all the way up = climb back onto the anchor
+  const rate = sp.reel * (1 + Math.min(3, d.len / 300));
+  d.len += ((input.drop ? 1 : 0) - (input.reach ? REEL_UP : 0)) * rate * dt;
   d.len = Math.min(d.len, ropeMax(world, d, sp.maxLen));
   if (d.len <= CLIMB_BACK_LEN) {
     climbBack(world, c);
@@ -1883,12 +1984,13 @@ function stepDangle(world: World, c: Creature, input: Input, dt: number): void {
 function dangleSub(world: World, c: Creature, input: Input, turn: number, h: number): void {
   const d = c.silk!;
   const sp = c.animal.silk!;
-  // forces: gravity, A/D swing sideways (perpendicular to the facing), Space pumps along the facing
+  // forces: gravity; A/D swing sideways (perpendicular to the facing), W / S swing forward / back along it
   const fwd = v3(Math.cos(d.yaw), 0, Math.sin(d.yaw));
   const right = v3(-fwd.z, 0, fwd.x);
   let a = v3(0, -GRAVITY, 0);
   if (turn !== 0) a = add(a, mul(right, turn * SWING_SIDE));
-  if (input.reach) a = add(a, mul(fwd, sp.pump));
+  const along = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
+  if (along !== 0) a = add(a, mul(fwd, along * Math.max(SWING_SIDE, sp.pump)));
   d.v = mul(add(d.v, mul(a, h)), Math.exp(-SWING_DAMP * h));
   const sp2 = len(d.v);
   if (sp2 > 1500) d.v = mul(d.v, 1500 / sp2);

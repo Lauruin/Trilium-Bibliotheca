@@ -55,7 +55,7 @@ Terms in alphabetical order. Where a word means two things (Trilium and Biblioth
 
 **Head / trail** - you steer the animal's head; the body follows the head's recorded path (the trail).
 
-**Hub** - the library root as seen in the tree view: a short fat stump at the origin from which every top-level folder's tree grows.
+**Hub** - the library root as seen in the tree view in hub layout: a short fat stump at the origin from which every top-level folder's tree grows. In forest layout the root is **Yggdrasil** instead (the giant world tree with the door, altar, wisp post and a crown of places). **Place** - a game mode or tool on a limb of Yggdrasil's crown. **Star junction** - where the ground roots meet at the world tree's foot.
 
 **Inbox** - the note labelled `biblio_inbox` that quick capture files new notes under.
 

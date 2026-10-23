@@ -168,9 +168,8 @@ Verify a service by content, not just a `200`: another app may own the port.
 
 ## 5. First things to try
 
-1. Walk with `A`/`D`, press `E` at a door and at a book.
-2. `O` for the overview, then `O` again.
-3. `T` for the tree; press `3` a few times to meet the fliers. Needs WebGL.
+1. The app opens in the **tree** (needs WebGL; else the library). Walk with `W`/`S`/`A`/`D`, press `3` a few times to meet the fliers, click a leaf to walk there, `E` next to one to read it. Click the glowing **wisp** on its post to search.
+2. `E` at the door in the foot of the world tree walks you into the **library**: walk with `A`/`D`, press `E` at a door and at a book; `O` for the overview, then `O` again; `T` takes you back to the door.
 4. `C` to capture a thought; check that an "Inbox" note appeared in Trilium.
 
 Details: [Library View](Library-View.md), [Tree View](Tree-View-Yggdrasil.md), [Capture and PWA](Capture-and-PWA.md).

@@ -410,7 +410,7 @@ export function TreeView(props: {
               )}
               {hud.dangling ? (
                 <span>
-                  <b>On a thread</b>: S lower · W reel up · A/D swing · hold Space to pump · <b>X</b> let go
+                  <b>On a thread</b>: hold <b>X</b> to go down · hold <b>Space</b> to go up · W/A/S/D swing · <b>Shift</b> lets go · <b>C</b> cuts it
                 </span>
               ) : (
                 hud.canSilk &&
@@ -513,7 +513,7 @@ export function TreeView(props: {
           )}
           <div className="tree-controls">
             {hud.moveMode === "guided" ? "W up the branch · S down · A/D turn on it (left / right as you face)" : "W forward · A/D steer the heading"} · M move guided/free · hold Space to aim a jump (arc preview, auto-target), release to leap (snake: hold = reach, steer with WASD; squirrel: W dive / S flare; bee, dragonfly, blue jay: Space = take off, then Space up / Shift down or land; jay: W dive, S climb) ·
-            X = spider silk (drop, swing, climb the thread again) · walking up past a side branch's base climbs it, hold Shift to stay (roots and threads: Shift climbs in) · B edit this branch · Y layout forest/hub · E read · click = walk there (double-click a leaf = read it; any key stops) · 1/2/3 animal category (again = next) · G grip {hud.gripOn ? "on" : "off"} · H auto-align (free mode) · N names · F foliage · K shadows · V camera (chase / level / fixed / mouse: drag to orbit) · L look · I performance · wheel/+/− zoom · P pixels · E at the shrine: the door (library), the altar (tools), the wisp (search)
+            X = spider silk (tap = drop; then hold X down, Space up, WASD swing, Shift let go; C cuts a thread) · walking up past a side branch's base climbs it, hold Shift to stay (roots and threads: Shift climbs in) · B edit this branch · Y layout forest/hub · E read · click = walk there (double-click a leaf = read it; any key stops) · 1/2/3 animal category (again = next) · G grip {hud.gripOn ? "on" : "off"} · H auto-align (free mode) · N names · F foliage · K shadows · V camera (chase / level / fixed / mouse: drag to orbit) · L look · I performance · wheel/+/− zoom · P pixels · E at the shrine: the door (library), the altar (tools), the wisp (search)
           </div>
         </>
       )}

@@ -6,7 +6,8 @@
  * length, so it is in the parent's `side` list) and ends either FREE in the air or on another branch (`endLink`, and the
  * thread is also in that branch's `side` list, so a thread between two branches is a climbable bridge both ways).
  *
- * Threads live in the module-level store `SILKS` until the page reloads: nothing is persisted. When the world is rebuilt
+ * Threads live in the module-level store `SILKS`; the view keeps them in localStorage between sessions (`serializeSilks` / `restoreSilks`,
+ * bounded and sanitised: it is data from storage, so it is never trusted) and a thread can be cut (sim3 `cutThread`). When the world is rebuilt
  * (the tree data changed) `applySilks(world)` re-creates them from their SURFACE references, so they follow edits; a thread
  * whose anchor branch (or arc length) no longer exists is skipped (but stays in the store).
  */
@@ -120,3 +121,67 @@ export function applySilks(world: World): number {
 
 /** How close (px) a surface point must be to a thread's end to count as standing at it. */
 export const SILK_ENTRY = 14;
+
+// ---- persistence (localStorage, by the view) ------------------------------------------------------------------------------------------
+
+/** At most this many threads are kept between sessions (the oldest go first). */
+export const SILK_KEEP = 200;
+
+const finite = (...xs: unknown[]): boolean => xs.every((x) => typeof x === "number" && Number.isFinite(x));
+const refOf = (v: unknown): SurfacePos | null => {
+  const r = v as Partial<SurfacePos> | null;
+  if (!r || typeof r !== "object" || typeof r.b !== "string" || r.b.length === 0 || r.b.length > 80 || !finite(r.s, r.th) || (r.s as number) < 0 || Math.abs(r.th as number) > 10) return null;
+  return { b: r.b, s: r.s as number, th: r.th as number };
+};
+
+/** One stored record -> a SilkRecord (any damage = null). */
+export function sanitizeSilk(v: unknown): SilkRecord | null {
+  const r = v as { id?: unknown; ref?: unknown; end?: { kind?: unknown; dx?: unknown; dy?: unknown; dz?: unknown; ref?: unknown } } | null;
+  if (!r || typeof r !== "object" || typeof r.id !== "string" || !/^silk:\d{1,9}$/.test(r.id)) return null;
+  const ref = refOf(r.ref);
+  if (!ref || !r.end || typeof r.end !== "object") return null;
+  if (r.end.kind === "free") {
+    if (!finite(r.end.dx, r.end.dy, r.end.dz) || Math.hypot(r.end.dx as number, r.end.dy as number, r.end.dz as number) > 1e6) return null;
+    return { id: r.id, ref, end: { kind: "free", dx: r.end.dx as number, dy: r.end.dy as number, dz: r.end.dz as number } };
+  }
+  if (r.end.kind === "surface") {
+    const to = refOf(r.end.ref);
+    return to ? { id: r.id, ref, end: { kind: "surface", ref: to } } : null;
+  }
+  return null;
+}
+
+/** The stored threads as text (the newest SILK_KEEP). */
+export function serializeSilks(recs: readonly SilkRecord[] = SILKS): string {
+  return JSON.stringify(recs.slice(-SILK_KEEP));
+}
+
+/** Text -> sanitised records (never throws; duplicates by id dropped, at most SILK_KEEP). */
+export function parseSilks(text: string | null): SilkRecord[] {
+  if (!text) return [];
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(raw)) return [];
+  const out: SilkRecord[] = [];
+  const seen = new Set<string>();
+  for (const v of raw.slice(-SILK_KEEP)) {
+    const r = sanitizeSilk(v);
+    if (r && !seen.has(r.id)) {
+      seen.add(r.id);
+      out.push(r);
+    }
+  }
+  return out;
+}
+
+/** Replace the store with stored records and continue numbering after the highest id (call before the first world is built). */
+export function restoreSilks(recs: readonly SilkRecord[]): void {
+  SILKS.length = 0;
+  SILKS.push(...recs);
+  counter = Math.max(counter, ...recs.map((r) => Number(r.id.slice(5))), 0);
+  version++;
+}

@@ -2191,7 +2191,7 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
     assert.ok(bodyLen(ant) < 14 && ant.reach.max / bodyLen(ant) > 5, "a 12 px ant reaches ~6 body lengths");
     assert.equal(sp.leap, null);
     assert.ok(sp.silk && sp.clings && !sp.reach, "spider: silk, clings, no leap, no reach");
-    assert.ok(Math.abs(sp.silk.maxLen - 300 * 1.6) < 1e-9 && Math.abs(sp.silk.reel - 60 * 1.6) < 1e-9 && Math.abs(sp.silk.pump - 170 * 1.6) < 1e-9, "scaled() scales the silk spec");
+    assert.ok(sp.silk.maxLen > 1e8 && Math.abs(sp.silk.reel - 90 * 1.6) < 1e-9 && Math.abs(sp.silk.pump - 170 * 1.6) < 1e-9, "scaled() scales the silk spec");
     assert.ok(ju.leap && ju.silk && ju.clings && ju.legs.length === 8 && sp.legs.length === 8 && !ju.reach, "jumper: leap + silk + clings + eight legs");
     assert.equal(ju.name, "Jumping spider");
     assert.ok(ju.body === "#2b2330" && ju.belly === "#c4552a" && ju.colors.length === ju.nodes.length && ju.colors.includes("#c4552a"), "dark body, orange-red abdomen");
@@ -2355,18 +2355,18 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
     S.step(fw, an, { ...idle, silk: true }, 1 / 60);
     assert.ok(an.silk === null, "ant: X does nothing");
 
-    // S lets the rope out at `reel` px/s, up to maxLen
+    // X HELD lets the rope out (a long rope faster): there is no maximum length: it goes on until the spider is 10 px above the ground
     c = drop(fw);
-    run(fw, c, { ...idle, back: true }, 1);
-    assert.ok(Math.abs(c.silk.len - (10 + sk.reel)) < 1.5, `${id}: S lets down ${sk.reel.toFixed(0)} px/s (${c.silk.len.toFixed(1)})`);
-    run(fw, c, { ...idle, back: true }, 12);
-    assert.ok(Math.abs(c.silk.len - sk.maxLen) < 1e-6, "stops at maxLen");
-    assert.ok(Math.abs(c.silk.p.y - (c.silk.anchor.y - sk.maxLen)) < 3, "hangs at the end of the rope");
-    // W reels in, 1.3 x as fast; fully reeled = back on the perch, no thread kept
+    run(fw, c, { ...idle, drop: true }, 1);
+    assert.ok(c.silk.len > 10 + 0.9 * sk.reel && c.silk.len < 10 + 1.6 * sk.reel, `${id}: X held lets down ~${sk.reel.toFixed(0)} px/s at first (${c.silk.len.toFixed(1)})`);
+    run(fw, c, { ...idle, drop: true }, 40);
+    assert.ok(c.silk.len > 1500, `no maximum rope length: ${c.silk.len.toFixed(0)} px after 40 s (the old limit was 300)`);
+    assert.ok(Math.abs(c.silk.p.y - (c.silk.anchor.y - c.silk.len)) < 3, "hangs at the end of the rope");
+    // Space HELD reels in, 1.3 x as fast; fully reeled = back on the perch, no thread kept
     c.silk.len = 150;
-    run(fw, c, { ...idle, forward: true }, 0.5);
-    assert.ok(Math.abs(c.silk.len - (150 - 1.3 * sk.reel * 0.5)) < 1.5, `W reels up 1.3 x (${c.silk.len.toFixed(1)})`);
-    for (let i = 0; i < 60 * 8 && c.silk; i++) S.step(fw, c, { ...idle, forward: true }, 1 / 60);
+    run(fw, c, { ...idle, reach: true }, 0.5);
+    assert.ok(c.silk.len < 100 && c.silk.len > 6, `Space reels up, faster than it lets down (${c.silk.len.toFixed(1)})`);
+    for (let i = 0; i < 60 * 12 && c.silk; i++) S.step(fw, c, { ...idle, reach: true }, 1 / 60);
     assert.ok(c.silk === null && c.air === null, "reeled all the way up: climbs back");
     assert.deepEqual(c.head, { b: "a", s: 1000, th: Math.PI }, "back on the anchor surface");
     assert.ok(c.trail[c.trail.length - 1].surf !== null && c.feet.every((f) => f.at.b === "a" && S.surfaceDist(fw, f.at, c.head) < 3 * bodyLen(sp)), "feet on the branch again");
@@ -2377,19 +2377,19 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
 
     // a drop from the TOP slides off the side as the rope is let out (it does not just stand on the branch)
     c = drop(fw, 1000, 0);
-    run(fw, c, { ...idle, back: true }, 5);
+    run(fw, c, { ...idle, drop: true }, 5);
     assert.ok(c.silk && c.silk.p.y < -45, `top drop hangs below the branch (${c.silk?.p.y.toFixed(0)})`);
 
     // ground clamp: never within 10 px of the ground, however it swings
     const gw = sky(-100);
     c = drop(gw);
     for (let i = 0; i < 60 * 8; i++) {
-      S.step(gw, c, { ...idle, back: true, right: i % 90 < 45, reach: true }, 1 / 60);
+      S.step(gw, c, { ...idle, drop: true, right: i % 90 < 45 }, 1 / 60);
       if (c.silk) assert.ok(c.silk.p.y >= -100 + 10 - 1e-6 && c.silk.len <= 50 + 1e-6, `ground clamp (${c.silk.p.y.toFixed(1)}, len ${c.silk.len.toFixed(1)})`);
     }
     assert.ok(c.silk, "still hanging just over the ground");
 
-    // swing: Space pumps along the facing, A/D swing sideways and turn the facing
+    // swing: W / S swing along the facing, A/D swing sideways (the facing only turns with the mouse camera)
     c = drop(fw);
     c.silk.len = 200;
     run(fw, c, idle, 3);
@@ -2399,33 +2399,40 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
     assert.ok(fwd0.x > 0.99, "facing = the heading (+x)");
     let vMax = 0, xMax = 0, aligned = true;
     for (let i = 0; i < 60 * 1.5; i++) {
-      S.step(fw, c, { ...idle, reach: true }, 1 / 60);
+      S.step(fw, c, { ...idle, forward: true }, 1 / 60);
       vMax = Math.max(vMax, c.silk.v.x);
       xMax = Math.max(xMax, c.silk.p.x - c.silk.anchor.x);
       if (i > 20 && i < 40 && !(c.silk.v.x > 0.8 * W.len(c.silk.v))) aligned = false;
     }
-    assert.ok(vMax > 60 && xMax > 40, `Space pumps the swing forward (v ${vMax.toFixed(0)}, x ${xMax.toFixed(0)})`);
-    assert.ok(aligned, "the pump pushes along the facing");
+    assert.ok(vMax > 60 && xMax > 40, `W swings forward (v ${vMax.toFixed(0)}, x ${xMax.toFixed(0)})`);
+    assert.ok(aligned, "W pushes along the facing");
     c = drop(fw);
     c.silk.len = 200;
     run(fw, c, idle, 3);
     run(fw, c, { ...idle, right: true }, 0.5);
-    assert.ok(c.silk.yaw > 0.5 && c.silk.v.z > 20, `D turns the facing and swings to the right (yaw ${c.silk.yaw.toFixed(2)}, vz ${c.silk.v.z.toFixed(0)})`);
+    assert.ok(c.silk.v.z > 20 && Math.abs(c.silk.yaw) < 1e-9, `D swings to the right and leaves the facing alone (yaw ${c.silk.yaw.toFixed(2)}, vz ${c.silk.v.z.toFixed(0)})`);
     c = drop(fw);
     c.silk.len = 200;
     run(fw, c, idle, 3);
     run(fw, c, { ...idle, left: true }, 0.5);
-    assert.ok(c.silk.yaw < -0.5 && c.silk.v.z < -20, "A: the other way");
+    assert.ok(c.silk.v.z < -20, "A: the other way");
+    // the mouse camera turns the facing: looking along +z, W then swings towards +z
+    c = drop(fw);
+    c.silk.len = 200;
+    for (let i = 0; i < 60 * 2; i++) S.step(fw, c, { ...idle, aimDir: { x: 0, y: -0.2, z: 0.98 } }, 1 / 60);
+    assert.ok(Math.abs(c.silk.yaw - Math.PI / 2) < 0.1, `the facing follows the look direction (${c.silk.yaw.toFixed(2)})`);
+    run(fw, c, { ...idle, forward: true, aimDir: { x: 0, y: -0.2, z: 0.98 } }, 0.6);
+    assert.ok(c.silk.v.z > 30, "and W swings the way you look");
 
     // let go: leave the rope with the current velocity, the thread freezes as it hangs (free end), the spider doesn't re-land on it
     S.clearSilks();
     c = drop(fw);
     c.silk.len = 100;
     run(fw, c, idle, 2);
-    run(fw, c, { ...idle, reach: true }, 0.7);
+    run(fw, c, { ...idle, forward: true }, 0.7);
     const vBefore = { ...c.silk.v }, pBefore = { ...c.silk.p }, anchor = { ...c.silk.anchor };
-    S.step(fw, c, { ...idle, silk: true }, 1 / 60);
-    assert.ok(c.silk === null && c.air && c.air.slip === false, "X again: let go -> airborne, not a slip");
+    S.step(fw, c, { ...idle, climb: true }, 1 / 60);
+    assert.ok(c.silk === null && c.air && c.air.slip === false, "Shift: let go -> airborne, not a slip");
     assert.ok(W.dist(c.air.v, vBefore) < 1e-9 && W.dist(c.air.p, pBefore) < 1e-9, "with the rope's velocity");
     const th1 = fw.branches.get("silk:1");
     assert.ok(th1 && th1.silk === true && th1.parent === "a" && Math.abs(th1.attachS - 1000) < 1e-9 && th1.endLink === undefined && th1.species === undefined, "a free thread branch");
@@ -2454,7 +2461,7 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
     S.clearSilks();
     const pw = pair();
     c = drop(pw);
-    for (let i = 0; i < 60 * 5 && c.silk; i++) S.step(pw, c, { ...idle, back: true }, 1 / 60);
+    for (let i = 0; i < 60 * 5 && c.silk; i++) S.step(pw, c, { ...idle, drop: true }, 1 / 60);
     assert.ok(c.silk === null && c.air === null && c.head.b === "g", `${id}: lowered itself onto the branch below`);
     const bridge = pw.branches.get("silk:1");
     assert.ok(bridge && bridge.silk && bridge.parent === "a" && bridge.endLink && bridge.endLink.b === "g" && Math.abs(bridge.endLink.s - c.head.s) < 1e-6, "bridge thread with endLink");
@@ -2503,7 +2510,7 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
     c = drop(pw2);
     c.silk.len = 100;
     run(pw2, c, idle, 1);
-    S.step(pw2, c, { ...idle, silk: true }, 1 / 60);
+    S.step(pw2, c, { ...idle, climb: true }, 1 / 60);
     run(pw2, c, idle, 2);
     assert.ok(c.air === null && c.silk === null && c.head.b === "g", "let go above a branch: lands on it");
     assert.ok(S.SILKS.length === 1 && S.SILKS[0].end.kind === "free", "still just the free thread");

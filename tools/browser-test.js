@@ -664,9 +664,14 @@ try {
     // the wisp perched on its lantern post: a click opens the search; results can be walked to / lit
     await page.evaluate(() => { const s = window.__treeScene; s.moveToPad("wisp"); s.setCamera("fixed"); s.zoomMul = 0.8; });
     await page.waitForFunction(() => { const s = window.__treeScene; const p = s.wispPoint, q = s.shrine.perch; return Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z) < 30; }, { timeout: 90000 });
-    await page.waitForFunction(() => { const s = window.__treeScene; const p = s.screenOf(s.wispPoint); return !!p && p.x > 20 && p.y > 20 && p.x < 1200 && p.y < 700; }, { timeout: 120000 }); // (the camera has caught up, slow in software GL)
-    await page.waitForTimeout(800);
-    const wp = await page.evaluate(() => { const s = window.__treeScene; return s.screenOf(s.wispPoint); });
+    // (software GL: wait until the wisp's screen position has stopped moving: the camera and the wisp both catch up slowly)
+    let wp = null;
+    for (let i = 0; i < 60 && !wp; i++) {
+      const a = await page.evaluate(() => { const s = window.__treeScene; return { ...s.screenOf(s.wispPoint), n: s.frameCount }; });
+      await page.waitForFunction((n) => window.__treeScene.frameCount >= n + 3, a.n, { timeout: 90000 }); // a few more FRAMES (software GL: seconds each)
+      const b = await page.evaluate(() => { const s = window.__treeScene; return s.screenOf(s.wispPoint); });
+      if (a && b && b.x > 20 && b.y > 20 && b.x < 1200 && b.y < 700 && Math.hypot(a.x - b.x, a.y - b.y) < 2) wp = b;
+    }
     const cb = await page.locator(".tree-canvas canvas").boundingBox();
     if (wp && cb) {
       await page.mouse.move(cb.x + wp.x, cb.y + wp.y);

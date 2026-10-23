@@ -13,11 +13,11 @@
 
 import * as THREE from "three";
 import {
-  animalForKey, bodyPoint, leapPreview, silkPoints, climbTarget, flightBasis, headNormal, headingVector, spawn, step, ANIMALS, ANIMAL_CATEGORIES, DEFAULT_MOVE_MODE, MOVE_MODES, NO_INPUT,
+  animalForKey, bodyPoint, cutThread, leapPreview, silkPoints, climbTarget, flightBasis, headNormal, headingVector, spawn, step, ANIMALS, ANIMAL_CATEGORIES, DEFAULT_MOVE_MODE, MOVE_MODES, NO_INPUT,
   type Animal, type Creature, type Input, type MoveMode,
 } from "./sim3";
 import { BranchLabels, LABEL_MODES, type LabelMode } from "./labels";
-import { applySilks, silkVersion } from "./silk";
+import { applySilks, parseSilks, restoreSilks, serializeSilks, SILKS, silkVersion } from "./silk";
 import { leafScale } from "./leafkind";
 import { buildLeafIndex, nearestLeafTo, type LeafIndex } from "./leafindex";
 import { Autopilot, type Goal, type PilotStatus } from "./autopilot";
@@ -217,6 +217,13 @@ export class TreeScene {
     return this.rig.camScale;
   }
   private keys = new Set<string>();
+  private lookDir = new THREE.Vector3();
+  /** Frames drawn so far (the tests wait for a few more of them: software GL takes seconds per frame). */
+  frameCount = 0;
+  /** Threads are remembered between sessions: the storage key, the version last written, and the pending write. */
+  private silkKey = "biblio.v1.silk";
+  private silkSaved = 0;
+  private silkTimer = 0;
   private leapQueued = false;
   private raf = 0;
   private last = 0;
@@ -278,6 +285,15 @@ export class TreeScene {
 
   constructor(private container: HTMLElement, world: World, startBranch: string, startS: number, animalIndex = 0) {
     this.world = world;
+    this.silkKey = typeof location !== "undefined" && location.pathname.includes("lizard3d") ? "biblio.v1.silkDemo" : "biblio.v1.silk";
+    if (SILKS.length === 0) {
+      try {
+        restoreSilks(parseSilks(localStorage.getItem(this.silkKey))); // threads spun in earlier sessions
+      } catch {
+        /* storage unavailable: no old threads */
+      }
+    }
+    this.silkSaved = silkVersion();
     this.look = load(LOOK_KEY, ["voxel", "lowpoly"] as const, "voxel");
     this.camMode = load(CAM_KEY, CAM_MODES, "chase");
     this.moveMode = load(MOVE_KEY, MOVE_MODES, DEFAULT_MOVE_MODE);
@@ -672,6 +688,18 @@ export class TreeScene {
 
   // ---- the wisp ---------------------------------------------------------------------
 
+  /** Write the threads to localStorage (they survive reloads; a cut thread is removed from it). */
+  private saveSilks(): void {
+    window.clearTimeout(this.silkTimer);
+    this.silkTimer = 0;
+    this.silkSaved = silkVersion();
+    try {
+      localStorage.setItem(this.silkKey, serializeSilks());
+    } catch {
+      /* storage full / disabled: threads last for this session */
+    }
+  }
+
   /** Re-read every remembered view setting from localStorage and apply it (after a save was loaded from Trilium). */
   reloadPrefs(): void {
     this.setLook(load(LOOK_KEY, ["voxel", "lowpoly"] as const, "voxel"));
@@ -818,6 +846,8 @@ export class TreeScene {
     this.disposed = true;
     window.clearTimeout(this.leafTimer);
     window.clearTimeout(this.buildTimer);
+    window.clearTimeout(this.silkTimer);
+    this.saveSilks();
     cancelAnimationFrame(this.raf);
     for (const [t, f] of this.listeners) window.removeEventListener(t, f);
     for (const [t, f] of this.elListeners) this.renderer.domElement.removeEventListener(t, f);
@@ -1064,6 +1094,7 @@ export class TreeScene {
     if (k === "v") this.cycleCamera();
     if (k === "n") this.cycleLabels();
     if (k === "x") this.silkQueued = true;
+    if (k === "c") cutThread(this.world, this.creature); // snip the thread you stand on / the rope you hang from
     if (k === "h") this.toggleAutoAlign();
     if (k === "m") this.toggleMoveMode();
     if (k === "l") this.toggleLook();
@@ -1169,13 +1200,20 @@ export class TreeScene {
       reach: k.has(" "),
       climb: k.has("shift"),
       silk: this.silkQueued,
+      drop: k.has("x"),
     };
+    if (this.camMode === "mouse") {
+      // the free camera steers reach, jump aim, flight and the swing: hand the sim the direction it looks along
+      const d = this.camera.getWorldDirection(this.lookDir);
+      input.aimDir = { x: d.x, y: d.y, z: d.z };
+    }
     this.leapQueued = false;
     this.silkQueued = false;
     return input;
   }
 
   private frame(now: number): void {
+    this.frameCount++;
     const cpu0 = performance.now();
     const frameMs = this.lastRender > 0 ? now - this.lastRender : 0;
     this.lastRender = now;
@@ -1210,6 +1248,7 @@ export class TreeScene {
     this.updateShadows(headV);
     this.updatePreview();
     this.updateSilk();
+    if (silkVersion() !== this.silkSaved && !this.silkTimer) this.silkTimer = window.setTimeout(() => this.saveSilks(), 1500);
     this.updateMarkers();
     this.renderer.info.reset();
     const render0 = performance.now();

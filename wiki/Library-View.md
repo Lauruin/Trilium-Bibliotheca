@@ -37,7 +37,7 @@ Rooms **grow wider** with their contents: width is `max(640, 72 + 60 x cases + 1
 | `B` | Build mode (only in a room, in the library view, not during the overview) |
 | `Z` / `Shift+Z` (or `Ctrl+Z`) | Undo / redo a saved build-mode edit |
 | `C` | Quick capture (ignored while typing or with a dialog open) |
-| `T` | Switch to the tree view |
+| `T` | Back out to the tree view (you reappear at the door in Yggdrasil's foot); the library itself is entered through that door |
 | Mouse | Click a spine, door, exit, wisp or Socrates to use it; the HUD has buttons for capture, tree/library, build, search, overview, refresh, settings |
 
 Interact range is 46 px from the player's centre (the world bounds stop you about 40 px short of a wall door; if you change room size, re-check this).
