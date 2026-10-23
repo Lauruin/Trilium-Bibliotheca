@@ -206,6 +206,10 @@ try {
     ([settings]) => {
       try {
         localStorage.setItem("biblio.v1.settings", JSON.stringify(settings));
+        // a fresh browser starts LOCKED with the tutorial running (the unlock system); the suite plays with everything open and the tutorial done,
+        // and the unlock steps in step 2d switch the progression on and off by hand. (Set only when absent: a reload keeps what the test chose.)
+        if (localStorage.getItem("biblio.v1.unlockAll") === null) localStorage.setItem("biblio.v1.unlockAll", "on");
+        if (localStorage.getItem("biblio.v1.save") === null) localStorage.setItem("biblio.v1.save", JSON.stringify({ v: 1, updatedAt: 1, settings: {}, progress: { counters: {}, unlocked: [], tutorial: { step: "", done: true, skipped: false } } }));
       } catch {
         /* sandboxed frame — nothing to do there */
       }
@@ -635,6 +639,50 @@ try {
     await page.getByRole("dialog", { name: "Shrine" }).waitFor({ timeout: 15000 });
     if ((await page.locator('[data-testid="shrine-library"]').count()) > 0 && (await page.locator('[data-testid="shrine-wisp"]').count()) > 0) ok("E at the altar opens the shrine panel (library door + wisp sections)");
     else fail("shrine panel lacks its sections");
+    // The unlock system: the Progress section lists what is open; switching "unlock everything" off locks the animals again; the tutorial replays and skips
+    {
+      await page.getByTestId("shrine-progress").waitFor({ timeout: 15000 });
+      const open = (id) => page.getByTestId(`unlock-${id}`).getAttribute("data-open");
+      if ((await page.getByTestId("unlock-all").isChecked()) && (await open("animal:eagle")) === "yes") ok("unlocks: the suite's browser has everything unlocked (the unlock-all switch is on)");
+      else fail("the unlock-all switch / the eagle should be open in the suite's browser");
+      await page.getByTestId("unlock-all").uncheck();
+      const locked = { eagle: await open("animal:eagle"), cat: await open("animal:cat"), lizard: await open("animal:lizard").catch(() => "n/a"), edit: await open("tool:edit"), build: await open("tool:build") };
+      if (locked.eagle === "no" && locked.cat === "no" && locked.edit === "yes" && locked.build === "yes") ok("unlocks: with the switch off the eagle and the cat are locked, the tools are open (the tutorial is done)");
+      else fail(`unlock list wrong with the switch off: ${JSON.stringify(locked)}`);
+      await page.keyboard.press("Escape");
+      await page.getByRole("dialog", { name: "Shrine" }).waitFor({ state: "detached", timeout: 10000 });
+      // a locked animal cannot be chosen: key 4 (fliers) and the button do nothing but explain
+      await page.keyboard.press("4");
+      await page.waitForTimeout(400);
+      const still = await page.evaluate(() => window.__treeScene.creature.animal.id);
+      const eagleBtn = await page.locator('.tree-cat button[data-locked="yes"]', { hasText: "Eagle" }).count();
+      const refused = await page.evaluate(() => window.__treeScene.chooseAnimal("eagle"));
+      if (still === "lizard" && eagleBtn === 1 && refused === false) ok("unlocks: key 4 and chooseAnimal refuse the locked fliers, their buttons are marked locked");
+      else fail(`locked animals were not refused: ${still}, buttons ${eagleBtn}, choose ${refused}`);
+      // the tutorial: replay from the shrine, a click-to-walk finishes its first step, skip removes the card
+      await page.keyboard.press("e");
+      await page.getByRole("dialog", { name: "Shrine" }).waitFor({ timeout: 15000 });
+      await page.getByTestId("tutorial-replay").click();
+      await page.keyboard.press("Escape");
+      await page.getByRole("dialog", { name: "Shrine" }).waitFor({ state: "detached", timeout: 10000 });
+      await page.getByTestId("tutorial-card").waitFor({ timeout: 15000 });
+      if ((await page.getByTestId("tutorial-card").getAttribute("data-step")) === "walk") ok("tutorial: replaying shows the card at its first step");
+      else fail("the tutorial card is not on the walk step after a replay");
+      await page.evaluate(() => { const s = window.__treeScene; const lf = s.leaves[0]; s.startPilot({ b: lf.branchId, s: lf.s, th: lf.th, leafId: lf.id }); });
+      await page.waitForFunction(() => document.querySelector('[data-testid="tutorial-card"]')?.getAttribute("data-step") === "climb", undefined, { timeout: 30000 });
+      ok("tutorial: a click-to-walk finishes the walk step (the card moves on to climbing)");
+      await page.evaluate(() => window.__treeScene.cancelPilot());
+      await page.getByTestId("tutorial-skip").click();
+      await page.waitForFunction(() => !document.querySelector('[data-testid="tutorial-card"]'), undefined, { timeout: 15000 });
+      ok("tutorial: skip removes the card");
+      // leave things as the rest of the suite expects: everything unlocked (back at the altar first: the click-to-walk took the animal away)
+      await page.evaluate(() => window.__treeScene.moveToPad("altar"));
+      await page.waitForFunction(() => /open the shrine/.test(document.querySelector(".tree-hint")?.textContent ?? ""), undefined, { timeout: 90000 });
+      await page.keyboard.press("e");
+      await page.getByRole("dialog", { name: "Shrine" }).waitFor({ timeout: 15000 });
+      await page.getByTestId("unlock-all").check();
+      await page.evaluate(() => document.activeElement?.blur()); // (the focused checkbox would swallow the keys of the next steps; the panel stays open for the clock steps)
+    }
     // The ant reads ON a leaf: choosing it next to a leaf opens the leaf view; W/S walks the text; another animal climbs back out
     {
       await page.evaluate(() => {
@@ -676,8 +724,11 @@ try {
       const noon = await daySnap();
       if (noon.dayK > 0.95 && noon.stars === 0 && noon.shadow > 0.95 && !noon.lantern && noon.sunY > 0.3 && noon.intensity > 2.8) ok("clock: at noon it is bright, the sun is high, shadows are full and the lantern is off");
       else fail(`noon looks wrong: ${JSON.stringify(noon)}`);
-      if ((await page.getByTestId("clock-time").innerText()) === "12:00") ok("clock: the panel shows the world's time");
-      else fail("clock time label wrong");
+      // (the HUD refreshes at most ~10 times a second and the software-GL scene a lot slower than that: wait for the label)
+      await page.waitForFunction(() => document.querySelector('[data-testid="clock-time"]')?.textContent === "12:00", undefined, { timeout: 60000 }).then(
+        () => ok("clock: the panel shows the world's time"),
+        async () => fail(`clock time label wrong: ${await page.getByTestId("clock-time").innerText()}`),
+      );
       await page.getByTestId("clock-fast").click();
       const h0 = (await daySnap()).hours;
       await page.waitForTimeout(4000);

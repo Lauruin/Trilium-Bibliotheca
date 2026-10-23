@@ -18,6 +18,8 @@ export interface Place {
   /** One line shown in the HUD hint / panel. */
   help: string;
   slot: PlaceSlot;
+  /** Unlock id (lib/unlocks.ts) the place needs before it gets a limb; absent = always there. */
+  unlock?: string;
   /** The shrine pad this limb's tip carries: the altar, or the wisp's perch; absent = a plain place pad (`place:<id>`). */
   pad?: "altar" | "wisp";
 }
@@ -38,4 +40,9 @@ export function demoPlaces(n: number): Place[] {
 export function placeOf(padId: string, places: readonly Place[] = PLACES): Place | null {
   if (padId.startsWith("place:")) return places.find((p) => `place:${p.id}` === padId) ?? null;
   return places.find((p) => p.pad === padId) ?? null;
+}
+
+/** The places that are available now (`can` = the unlock system's question; places without an `unlock` always are). */
+export function visiblePlaces(places: readonly Place[], can: (unlockId: string) => boolean): Place[] {
+  return places.filter((p) => !p.unlock || can(p.unlock));
 }

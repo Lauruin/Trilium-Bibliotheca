@@ -31,6 +31,7 @@ import { Hud } from "./ui/Hud";
 import { RoomPlaque } from "./ui/RoomPlaque";
 import { TreeView } from "./ui/TreeView";
 import { BuildPanel } from "./ui/BuildPanel";
+import { can } from "./state/progress";
 import { redoEdit, undoEdit } from "./lib/worldedit";
 import { SearchPanel } from "./ui/SearchPanel";
 import { TouchControls } from "./ui/TouchControls";
@@ -179,6 +180,12 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener("keydown", onKey);
   }, [modalOpen]);
 
+  // build mode is a tool the unlock system holds back until the tutorial is finished (or "unlock all" is on at the altar)
+  const openBuild = (): void => {
+    if (can("tool:build")) setBuildOpen(true);
+    else notify("info", "Build mode unlocks after the tutorial (finish or skip it in the tree), or switch on “unlock all” at the altar.");
+  };
+
   // --- "b" opens build mode; z / shift+z / ctrl+z undo / redo world edits -----
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -195,7 +202,7 @@ export default function App(): React.JSX.Element {
         }
       } else if (k === "b" && !e.ctrlKey && !e.metaKey && st.tree && st.path.length > 0 && !st.overview && view === "library") {
         e.preventDefault();
-        setBuildOpen(true);
+        openBuild();
       } else if (k === "z") {
         if (e.repeat) return; // holding Z must not queue a pile of undos
         const client = getClient();
@@ -241,7 +248,7 @@ export default function App(): React.JSX.Element {
       <Hud
         onOpenSearch={() => setSearchOpen(true)}
         onOpenCapture={() => setCaptureOpen(true)}
-        onOpenBuild={() => state.tree && state.path.length > 0 && !state.overview && setBuildOpen(true)}
+        onOpenBuild={() => state.tree && state.path.length > 0 && !state.overview && openBuild()}
         view={view}
         onToggleView={() => webglAvailable() && setView("tree")}
         onToggleOverview={() =>

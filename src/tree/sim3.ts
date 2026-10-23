@@ -361,13 +361,19 @@ export const ANIMAL_CATEGORIES: ReadonlyArray<{ label: string; ids: readonly str
   { label: "Fliers", ids: ["squirrel", "bee", "dragonfly", "bluejay", "eagle"] },
 ];
 
-/** Index in ANIMALS of the animal the number key `n` (1-based) selects, given the current one: next in the category, else its first. */
-export function animalForKey(n: number, currentId: string): number {
+/**
+ * Index in ANIMALS of the animal the number key `n` (1-based) selects, given the current one: next in the category, else its first.
+ * `allowed` (the unlock system) skips animals that are not available: the next ALLOWED one is taken; -1 when the category has none.
+ */
+export function animalForKey(n: number, currentId: string, allowed: (id: string) => boolean = () => true): number {
   const cat = ANIMAL_CATEGORIES[n - 1];
   if (!cat) return -1;
   const at = cat.ids.indexOf(currentId);
-  const id = cat.ids[(at + 1) % cat.ids.length];
-  return ANIMALS.findIndex((a) => a.id === id);
+  for (let k = 1; k <= cat.ids.length; k++) {
+    const id = cat.ids[(at + k) % cat.ids.length];
+    if (allowed(id)) return ANIMALS.findIndex((a) => a.id === id);
+  }
+  return -1;
 }
 
 export interface SurfacePos {

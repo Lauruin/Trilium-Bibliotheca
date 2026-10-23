@@ -4,7 +4,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "vite --port 5173 --strictPort",
     "build": "tsc -b && vite build",

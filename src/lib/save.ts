@@ -23,6 +23,7 @@ export const SETTING_KEYS = [
   "biblio.v1.treeWisp",
   "biblio.v1.treeClock",
   "biblio.v1.reader",
+  "biblio.v1.unlockAll",
 ] as const;
 
 export interface SaveProgress {

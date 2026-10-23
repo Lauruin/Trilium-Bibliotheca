@@ -727,3 +727,17 @@ button.active {
 .leaf-actions button { background: #14101cc0; color: #e8dcc0; border: 1px solid #8a6a48; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
 .leaf-actions button:hover { background: #2a1c12; }
 .tree-excerpt { display: block; margin-top: 3px; max-width: 380px; white-space: normal; font-size: 12px; color: #cfc4a8; font-style: italic; }
+
+/* the tutorial card and locked animals (unlock system) */
+.tutorial-card { position: absolute; right: 12px; top: 44px; width: 290px; background: #2a1c12ee; border: 1px solid #d8b868; padding: 8px 10px; font-size: 12.5px; color: #e8dcc0; z-index: 4; }
+.tutorial-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.tutorial-head button { background: #14101cc0; color: #e8dcc0; border: 1px solid #8a6a48; padding: 1px 8px; font: inherit; font-size: 12px; cursor: pointer; }
+.tutorial-card p { margin: 6px 0 0; }
+.tutorial-card .tutorial-alt { color: #a89a7a; }
+.tutorial-keys { margin-top: 6px; display: flex; gap: 4px; }
+.tutorial-keys kbd { background: #4a3322; border: 1px solid #d8b868; border-bottom-width: 3px; border-radius: 3px; padding: 0 6px; font-family: inherit; font-size: 12px; }
+.tree-cat button.locked { opacity: 0.45; cursor: not-allowed; }
+.progress-list { list-style: none; margin: 6px 0 0; padding: 0; font-size: 12.5px; }
+.progress-list li { padding: 2px 0; }
+.progress-list li.done { color: #9ad48c; }
+.progress-list li.locked { color: #a89a7a; }

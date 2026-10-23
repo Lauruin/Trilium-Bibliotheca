@@ -10,7 +10,7 @@
  * length: lib/leafsize.ts measures them lazily in the background (cached by blob id).
  */
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { bus } from "../game/events";
 import { layoutTree, pathToRoot, type LayoutMode, type TreeLayout } from "../tree/layout";
 import { loadLayoutMode, saveLayoutMode } from "../tree/layoutpref";
@@ -25,10 +25,14 @@ import { dirty, loadNow, saveNow, setSyncOn, syncOn } from "../state/savestore";
 import { inspectYggdrasil } from "../lib/yggdrasil";
 import { setTreeBridge } from "../tree/bridge";
 import { CLOCK_MODES, FAST_MINUTES, hhmm, type ClockMode } from "../tree/clock";
-import { PLACES, placeOf } from "../tree/places";
+import { PLACES, placeOf, visiblePlaces } from "../tree/places";
+import { requirementText } from "../lib/unlocks";
+import { CATALOG, bump, can, canAnimal, ensureLoaded, flushProgress, game, getCounters, progressVersion, reloadProgress, subscribe } from "../state/progress";
 import { BranchPanel } from "./BranchPanel";
 import { LeafView, type LeafViewNote } from "./LeafView";
 import { PerfOverlay } from "./PerfOverlay";
+import { ProgressSection } from "./ProgressSection";
+import { TutorialCard } from "./TutorialCard";
 import { ShrinePanel, type ShrineSection } from "./ShrinePanel";
 
 /** A branch's display name: the folder's title ("Yggdrasil" for the root: the world tree); a crown limb is its place's title; a ground root (`root:<tree>`) is "<tree> roots". */
@@ -59,6 +63,11 @@ export function TreeView(props: {
 }): React.JSX.Element {
   const state = useAppStore();
   const tree = state.tree;
+  ensureLoaded(); // (the unlock-all default is decided before anything else writes a tree setting)
+  useSyncExternalStore(subscribe, progressVersion);
+  // places the unlock system lets grow a limb (keyed by id so counting metres does not re-layout the world)
+  const placeKey = PLACES.filter((p) => visiblePlaces([p], can).length > 0).map((p) => p.id).join(",");
+  const places = useMemo(() => PLACES.filter((p) => placeKey.split(",").includes(p.id)), [placeKey]);
   const hostRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<TreeScene | null>(null);
   const [hud, setHud] = useState<HudInfo | null>(null);
@@ -92,9 +101,9 @@ export function TreeView(props: {
   /** forest (every top-level folder its own tree, joined by ground roots) or hub (the original); key Y, remembered. */
   const [mode, setMode] = useState<LayoutMode>(loadLayoutMode);
   const layout = useMemo(
-    () => (tree ? layoutTree(tree, { mode, places: PLACES, crown: true, overrides: editId && Object.keys(deferredPending).length > 0 ? new Map([[editId, deferredPending]]) : undefined }) : null),
+    () => (tree ? layoutTree(tree, { mode, places, crown: true, overrides: editId && Object.keys(deferredPending).length > 0 ? new Map([[editId, deferredPending]]) : undefined }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tree, version, editId, deferredPending, mode],
+    [tree, version, editId, deferredPending, mode, places],
   );
   const toggleMode = (): void =>
     setMode((m) => {
@@ -138,9 +147,22 @@ export function TreeView(props: {
     const openLeaf = (leaf: { id: string; color: string; title?: string }): void => {
       const n = getState().tree?.notes[leaf.id];
       if (!n) return;
+      game({ kind: "read" });
       setLeafView({ id: n.noteId, title: n.title, type: n.type, color: leaf.color, learn: n.learn, noai: n.noai });
     };
-    scene.onInteract = (leaf) => (scene.creature.animal.id === "ant" ? openLeaf(leaf) : openRef.current(leaf.id)); // the mite reads ON the leaf
+    scene.onInteract = (leaf) => {
+      if (scene.creature.animal.id === "ant") openLeaf(leaf); // the ant reads ON the leaf
+      else {
+        game({ kind: "read" });
+        openRef.current(leaf.id);
+      }
+    };
+    scene.animalAllowed = canAnimal;
+    scene.onLocked = (a) => {
+      const u = CATALOG.find((x) => x.id === `animal:${a.id}`);
+      notify("info", `${a.name} is locked${u ? ` — ${requirementText(u, getCounters())}` : ""}. (Or switch on “unlock everything” at the altar.)`);
+    };
+    scene.onGame = game;
     scene.onAnimal = (a) => {
       if (a.id !== "ant") return;
       const near = scene.nearestLeaf(140);
@@ -151,7 +173,10 @@ export function TreeView(props: {
     scene.onPad = (id) => {
       if (id === "door") propsRef.current.onEnterLibrary();
       else if (id === "wisp") propsRef.current.onOpenSearch();
-      else if (id === "altar") setShrineOpen(true);
+      else if (id === "altar") {
+        game({ kind: "altar" });
+        setShrineOpen(true);
+      }
       else {
         const place = placeOf(id);
         notify("info", place ? `${place.title}: ${place.help}` : "Nothing here yet.");
@@ -172,7 +197,8 @@ export function TreeView(props: {
     sceneRef.current = scene;
     (window as unknown as { __treeScene: TreeScene }).__treeScene = scene;
     scene.start();
-    if (syncOn() && client0()) void loadNow(client0()!).then((r) => r.ok && r.what === "loaded" && scene.reloadPrefs());
+    if (syncOn() && client0()) void loadNow(client0()!).then((r) => r.ok && r.what === "loaded" && (scene.reloadPrefs(), reloadProgress()));
+    const minutes = window.setInterval(() => document.visibilityState === "visible" && scene.enabled && bump("minutes", 1), 60000);
     // leaf size = note length: measured lazily (the first batch is the cache), applied as it arrives
     const ctrl = new AbortController();
     const client = getClient();
@@ -196,6 +222,8 @@ export function TreeView(props: {
       }).catch((e) => console.warn("[tree] leaf sizes", e));
     }
     return () => {
+      window.clearInterval(minutes);
+      flushProgress();
       if (syncOn() && dirty() && client0()) void saveNow(client0()!, getState().rootNoteId); // leaving the tree: keep what changed
       ctrl.abort();
       setTreeBridge(null);
@@ -230,6 +258,10 @@ export function TreeView(props: {
         return;
       }
       if (e.key.toLowerCase() !== "b") return;
+      if (!can("tool:edit")) {
+        notify("info", "The branch editor unlocks after the tutorial (finish or skip it), or switch on “unlock everything” at the altar.");
+        return;
+      }
       setEditId((cur) => {
         if (cur) {
           setPendingState({});
@@ -294,7 +326,10 @@ export function TreeView(props: {
     if (!client) return;
     setSync((x) => ({ ...x, busy: true, msg: "" }));
     const r = await loadNow(client);
-    if (r.ok && r.what === "loaded") sceneRef.current?.reloadPrefs();
+    if (r.ok && r.what === "loaded") {
+      sceneRef.current?.reloadPrefs();
+      reloadProgress();
+    }
     setSync((x) => ({ ...x, busy: false, msg: !r.ok ? `Could not load: ${r.message}` : r.what === "loaded" ? "Loaded from Trilium and merged." : "Nothing is saved in Trilium yet." }));
   };
   const shrineSections: ShrineSection[] = [
@@ -396,6 +431,12 @@ export function TreeView(props: {
           </label>
         </>
       ),
+    },
+    {
+      id: "progress",
+      title: "Progress",
+      help: "Toys and tools unlock as you play (animals, the branch editor, build mode); reading, search, capture and the library always work. The tutorial teaches the controls; replay it here.",
+      body: <ProgressSection />,
     },
     {
       id: "save",
@@ -555,6 +596,7 @@ export function TreeView(props: {
               )}
             </div>
           )}
+          {!shrineOpen && !leafView && <TutorialCard mouseCamera={hud.camera === "mouse"} />}
           <div className="tree-animals" onMouseDown={(e) => e.preventDefault()}>
             {ANIMAL_CATEGORIES.map((cat, ci) => (
               <div key={cat.label} className="tree-cat">
@@ -564,12 +606,14 @@ export function TreeView(props: {
                 {cat.ids.map((id) => (
                   <button
                     key={id}
-                    className={hud.animalId === id ? "active" : ""}
+                    className={`${hud.animalId === id ? "active" : ""}${canAnimal(id) ? "" : " locked"}`}
+                    data-locked={canAnimal(id) ? undefined : "yes"}
                     onClick={() => {
                       const a = ANIMALS.find((x) => x.id === id);
                       if (a) sceneRef.current?.setAnimal(a);
                     }}
                   >
+                    {canAnimal(id) ? "" : "🔒 "}
                     {ANIMALS.find((x) => x.id === id)?.name ?? id}
                   </button>
                 ))}
@@ -583,7 +627,15 @@ export function TreeView(props: {
             <button className={mode === "forest" ? "active" : ""} onClick={toggleMode} title="Layout: forest (every top-level folder is its own tree, joined to the central stump by ground roots) or hub (all trunks arch out of one stump) (Y)">
               layout: {mode}
             </button>
-            <button onClick={() => { if (editId) closeEditor(); else if (layout?.info.has(hud.branch)) setEditId(hud.branch); }} title="Edit the properties (length, thickness, rotation, wave, species…) of the branch you are on (B)">
+            <button
+              className={can("tool:edit") ? "" : "locked"}
+              onClick={() => {
+                if (!can("tool:edit")) notify("info", "The branch editor unlocks after the tutorial (finish or skip it), or switch on “unlock everything” at the altar.");
+                else if (editId) closeEditor();
+                else if (layout?.info.has(hud.branch)) setEditId(hud.branch);
+              }}
+              title="Edit the properties (length, thickness, rotation, wave, species…) of the branch you are on (B)"
+            >
               edit branch
             </button>
             <button onClick={() => sceneRef.current?.cycleLabels()} title="Names of the branches: signs at the big ones · bubbles over all of them · off (N)">

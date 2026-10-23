@@ -16,6 +16,7 @@ import {
   animalForKey, bodyPoint, cutThread, leapPreview, silkPoints, climbTarget, flightBasis, headNormal, headingVector, spawn, step, ANIMALS, ANIMAL_CATEGORIES, DEFAULT_MOVE_MODE, MOVE_MODES, NO_INPUT,
   type Animal, type Creature, type Input, type MoveMode,
 } from "./sim3";
+import type { GameEvent } from "../lib/tutorial";
 import { BranchLabels, LABEL_MODES, type LabelMode } from "./labels";
 import { applySilks, parseSilks, restoreSilks, serializeSilks, SILKS, silkVersion } from "./silk";
 import { leafScale } from "./leafkind";
@@ -190,6 +191,15 @@ export class TreeScene {
   onInteract: ((leaf: Leaf) => void) | null = null;
   /** An animal was chosen (the tree view opens the leaf view when it is the ant and a leaf is near). */
   onAnimal: ((a: Animal) => void) | null = null;
+  /** The unlock system: which animals may be chosen (default: all); a refused choice calls `onLocked` instead. */
+  animalAllowed: (id: string) => boolean = () => true;
+  onLocked: ((a: Animal) => void) | null = null;
+  /** What the player does (walked, entered a branch, leapt, zoomed, changed animal, clicked to walk): feeds the tutorial and the unlock counters. */
+  onGame: ((e: GameEvent) => void) | null = null;
+  private gameBranch = "";
+  private gameD = 0;
+  private gameAcc = 0;
+  private gameAir = false;
   /** E pressed at a shrine pad (door / altar / wisp), or the wisp was clicked. */
   onPad: ((id: PadId) => void) | null = null;
   /** The shrine (the stump's door, altar and the wisp's lantern post) exists only in the app (TreeView turns it on), not on the demo page. */
@@ -461,29 +471,42 @@ export class TreeScene {
 
   zoom(factor: number): void {
     this.zoomMul = Math.min(8, Math.max(0.2, this.zoomMul * factor));
+    this.onGame?.({ kind: "zoom" });
   }
 
   setAnimal(a: Animal): void {
+    if (!this.animalAllowed(a.id)) {
+      this.onLocked?.(a);
+      return;
+    }
     const h = this.creature.head;
     const { gripOn, autoAlign } = this.creature;
     this.creature = spawn(this.world, a, h.b, h.s, this.moveMode);
     this.creature.gripOn = gripOn;
     this.creature.autoAlign = autoAlign;
     this.onAnimal?.(a);
+    this.onGame?.({ kind: "animal" });
   }
 
   /** Choose an animal by id (tests, the HUD); false for an unknown id. */
   chooseAnimal(id: string): boolean {
     const a = ANIMALS.find((x) => x.id === id);
-    if (!a) return false;
+    if (!a || !this.animalAllowed(a.id)) {
+      if (a) this.onLocked?.(a);
+      return false;
+    }
     this.setAnimal(a);
     return true;
   }
 
   /** Number key n (1-based): pick that category, or cycle within it when it is already the current one. */
   selectCategory(n: number): void {
-    const i = animalForKey(n, this.creature.animal.id);
+    const i = animalForKey(n, this.creature.animal.id, this.animalAllowed);
     if (i >= 0) this.setAnimal(ANIMALS[i]);
+    else {
+      const first = ANIMALS.find((a) => a.id === ANIMAL_CATEGORIES[n - 1]?.ids[0]);
+      if (first) this.onLocked?.(first); // the whole category is locked
+    }
   }
 
   setLabels(mode: LabelMode): void {
@@ -1138,6 +1161,7 @@ export class TreeScene {
       return;
     }
     this.pilot = new Autopilot(goal);
+    this.onGame?.({ kind: "walkTo" });
     this.pilotRead = false;
     if (c.moveMode !== "guided") {
       this.pilotRestore = c.moveMode;
@@ -1340,6 +1364,40 @@ export class TreeScene {
     return input;
   }
 
+  /** Report what the player did this frame (distance in metres, entering a branch, a leap or take-off). Silent while a panel has the scene disabled. */
+  private trackGame(): void {
+    const c = this.creature;
+    const dD = c.D - this.gameD;
+    this.gameD = c.D;
+    const b = c.head.b;
+    const airborne = !!(c.flight || (c.air && !c.air.slip));
+    const sink = this.onGame;
+    if (!sink || !this.enabled || dD < 0) {
+      // (a new creature starts its trail at D = 0: a respawn / moveToPad / animal change is a teleport, not walking, and enters nothing)
+      this.gameBranch = b;
+      this.gameAir = airborne;
+      return;
+    }
+    if (dD > 0 && dD < 400) {
+      this.gameAcc += dD / 20; // 20 world units = 1 m
+      if (this.gameAcc >= 1) {
+        const m = Math.floor(this.gameAcc);
+        this.gameAcc -= m;
+        sink({ kind: "distance", m });
+      }
+    }
+    if (b !== this.gameBranch) {
+      const from = this.gameBranch;
+      this.gameBranch = b;
+      if (from) {
+        const to = this.world.branches.get(b);
+        sink({ kind: "enter", up: !!to && to.parent === from && !to.silk });
+      }
+    }
+    if (airborne && !this.gameAir) sink({ kind: "leap" });
+    this.gameAir = airborne;
+  }
+
   private frame(now: number): void {
     this.frameCount++;
     const cpu0 = performance.now();
@@ -1349,6 +1407,7 @@ export class TreeScene {
     this.last = now;
     const t = now / 1000;
     step(this.world, this.creature, this.input(dt), dt);
+    this.trackGame();
     this.rig.update(this.world, this.creature, t, this.look);
     this.updateCamera(dt);
     this.updateDay(now);
