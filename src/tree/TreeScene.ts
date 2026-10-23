@@ -30,13 +30,16 @@ import type { Leaf } from "./layout";
 import { frameAt, nearestOnBranch, radiusAt, surfacePoint, thetaOf, type World } from "./world3";
 import { clampDensity, FoliageLayer } from "./foliage";
 import { arrival, padNear, shrineOf, type Pad, type PadId, type Shrine } from "./shrine";
+import { daylight, type Daylight } from "./daylight";
+import { CLOCK_KEY, parseClock, serializeClock, WorldClock, type ClockState } from "./clock";
+import { SkyRig } from "./sky";
 import { buildShrine } from "./shrinemodel";
 import { parseWispMode, wispHit, wispStep, wispTarget, type WispMode } from "./wisp";
 import { CreatureRig } from "./creatures";
 import { CLOUDS, createVignette, environmentKey } from "./scenery";
 import { ContactShadow, foliageDepthMaterial, loadShadowQuality, nextShadowQuality, SHADOW_KEY, SunShadows, tagShadows, type ShadowQuality } from "./shadows";
 import {
-  buildBark, buildEnvironment, buildLeaves, buildLights, buildSky, disposeGroup, SKY, SUN_DIR, T3, toV, VOX, WIND, type Look,
+  buildBark, buildEnvironment, buildLeaves, buildLights, disposeGroup, SUN_DIR, T3, toV, VOX, WIND, type Look,
 } from "./look";
 
 export type { Leaf } from "./layout";
@@ -99,6 +102,9 @@ export interface HudInfo {
   walking: boolean;
   /** The shrine pad you are standing at (E uses it), or null. */
   pad: { id: PadId; label: string } | null;
+  /** The hour in the world and the clock the player chose (the shrine's clock). */
+  hour: number;
+  clock: ClockState;
   /** Where the wisp is: perched on the shrine, following you; and whether it is lighting the way to a leaf. */
   wispMode: WispMode;
   wispGuiding: boolean;
@@ -218,6 +224,7 @@ export class TreeScene {
   }
   private keys = new Set<string>();
   private lookDir = new THREE.Vector3();
+  private sunDirV = new THREE.Vector3(0, 1, 0);
   /** Frames drawn so far (the tests wait for a few more of them: software GL takes seconds per frame). */
   frameCount = 0;
   /** Threads are remembered between sessions: the storage key, the version last written, and the pending write. */
@@ -236,7 +243,15 @@ export class TreeScene {
   /** Guided movement: the heading the chase / level camera follows (eased, see `travel`). */
   private camFwd = new THREE.Vector3(1, 0, 0);
   private wisp: THREE.Sprite;
-  private sky: ReturnType<typeof buildSky>;
+  private sky: SkyRig;
+  private lights: ReturnType<typeof buildLights>;
+  /** The time of day (daylight.ts / clock.ts): the player's choice, the current light, and when it was last applied. */
+  private worldClock: WorldClock;
+  private day: Daylight;
+  private dayAt = -1e9;
+  private dayDirty = true;
+  private wispLamp: THREE.PointLight;
+  private cloudMat: THREE.MeshLambertMaterial | null = null;
   private sunLight: THREE.DirectionalLight;
   /** Sun shadow map that follows the animal + the blob fallback under it (src/tree/shadows.ts). */
   private shadows: SunShadows;
@@ -314,15 +329,20 @@ export class TreeScene {
     container.appendChild(this.vignette);
     this.vignette.style.opacity = this.look === "lowpoly" ? "1" : "0";
     this.camera = new THREE.PerspectiveCamera(42, 1, 3, 60000);
-    this.scene.background = new THREE.Color(SKY.horizon);
-    this.scene.fog = new THREE.Fog(SKY.horizon, 2200, 13500);
+    this.worldClock = new WorldClock(parseClock((() => { try { return localStorage.getItem(CLOCK_KEY); } catch { return null; } })()));
+    this.day = daylight(this.worldClock.hours(), this.worldClock.doy(), this.worldClock.state.night);
+    this.scene.background = new THREE.Color();
+    this.scene.fog = new THREE.Fog(0xc2d9e8, 2200, 13500);
     this.renderer.toneMapping = THREE.NeutralToneMapping; // keeps the authored colours, only rolls off the brightest sunlit faces
     const lights = buildLights();
+    this.lights = lights;
     this.scene.add(lights.hemi, lights.fill, lights.rim);
     this.sunLight = lights.sun;
-    this.shadows = new SunShadows(this.renderer, this.sunLight, SUN_DIR, loadShadowQuality());
-    this.sky = buildSky();
-    this.scene.add(this.sunLight, this.sunLight.target, this.contact.mesh, this.sky.dome, this.sky.sun, this.worldGroup, this.creatureGroup);
+    this.sunDirV.copy(SUN_DIR); // (own copy: the time of day moves it; SUN_DIR is a shared constant)
+    this.shadows = new SunShadows(this.renderer, this.sunLight, this.sunDirV, loadShadowQuality());
+    this.sky = new SkyRig();
+    this.wispLamp = new THREE.PointLight(0xffd9a0, 0, 1300, 1); // the wisp's lantern: only on in the dark (added to the scene while it is needed)
+    this.scene.add(this.sunLight, this.sunLight.target, this.contact.mesh, this.sky.group, this.worldGroup, this.creatureGroup);
     this.worldGroup.add(this.envGroup, this.barkGroup, this.leafGroup, this.foliage.group, this.labels.group, this.shrineGroup);
     this.creature = spawn(world, ANIMALS[animalIndex], startBranch, startS, this.moveMode);
     const cv = document.createElement("canvas");
@@ -688,6 +708,90 @@ export class TreeScene {
 
   // ---- the wisp ---------------------------------------------------------------------
 
+  // ---- time of day ---------------------------------------------------------------------------------
+
+  /** The clock the player chose (real / fixed / fast) and the hour in the world now. */
+  get dayClock(): ClockState {
+    return { ...this.worldClock.state };
+  }
+
+  get hours(): number {
+    return this.worldClock.hours();
+  }
+
+  /** Intensity of the sun light right now (tests). */
+  get sunLightIntensity(): number {
+    return this.sunLight.intensity;
+  }
+
+  /** The wisp's lantern (a point light) is in the scene: it is dark enough. */
+  get lanternOn(): boolean {
+    return this.wispLamp.parent !== null;
+  }
+
+  /** The light of the moment (a debug handle for the tests and the HUD). */
+  get daylight(): Daylight {
+    return this.day;
+  }
+
+  setClock(state: ClockState): void {
+    this.worldClock.set(parseClock(serializeClock(state)));
+    try {
+      localStorage.setItem(CLOCK_KEY, serializeClock(this.worldClock.state));
+    } catch {
+      /* a preference, never an error */
+    }
+    this.dayDirty = true;
+  }
+
+  /**
+   * Apply the time of day to the lights, the sky, the fog, the clouds, the shadows and the wisp's lantern. The clock is read ten times a
+   * second (a real-time day changes by almost nothing in that time; the fastest clock, 2 minutes a day, by a fifth of an hour a second).
+   */
+  private updateDay(now: number): void {
+    if (this.dayDirty || now - this.dayAt >= 100) {
+      this.dayAt = now;
+      this.dayDirty = false;
+      const wc = this.worldClock;
+      const d = daylight(wc.hours(), wc.doy(), wc.state.night);
+      this.day = d;
+      const L = this.lights;
+      const set = (c: THREE.Color, rgb: readonly number[]): void => void c.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
+      set(L.hemi.color, d.hemiSky);
+      set(L.hemi.groundColor, d.hemiGround);
+      L.hemi.intensity = d.hemiIntensity;
+      set(L.fill.color, d.fillColor);
+      L.fill.intensity = d.fillIntensity;
+      set(L.sun.color, d.lightColor);
+      L.sun.intensity = d.lightIntensity;
+      set(L.rim.color, d.rimColor);
+      L.rim.intensity = d.rimIntensity;
+      L.rim.position.set(d.rimDir.x * 1000, d.rimDir.y * 1000, d.rimDir.z * 1000);
+      this.sunDirV.set(d.sunDir.x, d.sunDir.y, d.sunDir.z);
+      this.shadows.setSunDir(this.sunDirV);
+      this.shadows.setStrength(d.shadowStrength);
+      const bg = this.scene.background as THREE.Color;
+      set(bg, d.fogColor);
+      const fog = this.scene.fog as THREE.Fog;
+      set(fog.color, d.fogColor);
+      fog.near = d.fogNear;
+      fog.far = d.fogFar;
+      if (this.cloudMat) {
+        set(this.cloudMat.color, d.cloudTint);
+        this.cloudMat.emissiveIntensity = 0.55 * d.dayK + 0.06;
+      }
+      // the wisp is a lantern in the dark: a real point light (added to the scene only while it is needed: a light costs every pixel)
+      this.wispLamp.intensity = 520 * d.wispLight; // (candela: with decay 1 that is ~1.7 at 300 px, ~0.4 at 1300)
+      const lit = d.wispLight > 0.02;
+      if (lit !== (this.wispLamp.parent !== null)) {
+        if (lit) this.scene.add(this.wispLamp);
+        else this.scene.remove(this.wispLamp);
+      }
+    }
+    this.sky.update(this.day, this.camera.position);
+    if (this.wispLamp.parent) this.wispLamp.position.copy(this.wisp.position);
+  }
+
   /** Write the threads to localStorage (they survive reloads; a cut thread is removed from it). */
   private saveSilks(): void {
     window.clearTimeout(this.silkTimer);
@@ -710,6 +814,12 @@ export class TreeScene {
     this.setShadows(loadShadowQuality());
     this.setPerfProfile(load(PERF_KEY, PERF_PROFILES, DEFAULT_PERF_PROFILE));
     this.wispMode = parseWispMode(load("biblio.v1.treeWisp", ["perch", "follow"] as const, "perch"));
+    try {
+      this.worldClock.set(parseClock(localStorage.getItem(CLOCK_KEY)));
+    } catch {
+      /* keep the current clock */
+    }
+    this.dayDirty = true;
   }
 
   setWispMode(m: WispMode): void {
@@ -874,7 +984,8 @@ export class TreeScene {
     this.foliageDepth.dispose();
     disposeGroup(this.worldGroup);
     disposeGroup(this.creatureGroup);
-    disposeGroup(this.sky.dome);
+    this.sky.dispose();
+    this.wispLamp.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.vignette.remove();
@@ -1136,6 +1247,12 @@ export class TreeScene {
       disposeGroup(this.envGroup);
       this.envGroup.add(buildEnvironment(this.look, this.ground, this.world));
       this.clouds = this.envGroup.getObjectByName(CLOUDS) ?? null;
+      this.cloudMat = null;
+      this.clouds?.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.MeshLambertMaterial | undefined;
+        if (m && m.isMeshLambertMaterial) this.cloudMat = m;
+      });
+      this.dayDirty = true;
     }
     this.barkGroup.add(buildBark(this.world, this.look, this.ground));
     tagShadows(this.barkGroup, true, true);
@@ -1223,9 +1340,7 @@ export class TreeScene {
     step(this.world, this.creature, this.input(dt), dt);
     this.rig.update(this.world, this.creature, t, this.look);
     this.updateCamera(dt);
-    // the sky and sun follow the camera, so they never come closer
-    this.sky.dome.position.copy(this.camera.position);
-    this.sky.sun.position.copy(this.camera.position).addScaledVector(SUN_DIR, 22000);
+    this.updateDay(now);
     WIND.value = t % 600; // (a small number keeps the float32 shader clock precise)
     if (this.clouds) {
       this.clouds.position.set(this.camera.position.x, 0, this.camera.position.z);
@@ -1276,7 +1391,7 @@ export class TreeScene {
       perfProfile: this.perfProfile, perf: this.perfOverlay ? this.stats : null,
       walking: !!this.pilot,
       pad: this.hudPad ? { id: this.hudPad.id, label: this.hudPad.label } : null,
-      wispMode: this.wispMode, wispGuiding: this.wispGuide !== null, hoverWisp: this.hoverWisp,
+      wispMode: this.wispMode, wispGuiding: this.wispGuide !== null, hoverWisp: this.hoverWisp, hour: this.day.hours, clock: this.worldClock.state,
       hover: this.hover && this.hover.title ? { title: this.hover.title, leaf: this.hover.pick.kind === "leaf", x: this.hover.x, y: this.hover.y } : null,
     });
   }
@@ -1334,7 +1449,7 @@ export class TreeScene {
       this.lenId = this.creature.animal.id;
       this.lenVal = Math.max(...this.creature.animal.nodes.map((n) => n.d));
     }
-    this.contact.update(!this.shadows.on, head.x, head.z, this.ground, head.y - this.ground, this.lenVal * 0.8, this.look === "voxel" ? 2 : 4);
+    this.contact.update(!this.shadows.active, head.x, head.z, this.ground, head.y - this.ground, this.lenVal * 0.8, this.look === "voxel" ? 2 : 4);
   }
 
   /** Rebuild the thread lines when a thread appeared/changed (a version counter, not a string per frame), and the live rope while dangling. */

@@ -129,6 +129,24 @@ export default async ({ bundle, assert }) => {
   rig.update({ x: 0, y: 0, z: 0 }, 100); // no-op while off
   assert.equal(rig.set("low"), true);
   assert.equal(light.shadow.mapSize.x, 1024);
+  // time of day: the sun direction moves, the strength fades the pass out without recompiling (autoUpdate, castShadow stays)
+  assert.equal(rig.set("medium"), false);
+  assert.equal(rig.active, true);
+  assert.equal(rig.setStrength(0.5), false, "half strength: the pass stays on");
+  assert.ok(Math.abs(light.shadow.intensity - 0.46) < 1e-9);
+  assert.equal(rig.setStrength(0), true, "no sun: the pass is skipped");
+  assert.equal(rig.active, false);
+  assert.equal(light.shadow.autoUpdate, false);
+  assert.equal(light.castShadow, true, "the light keeps casting (no recompile of every program)");
+  const night = new THREE.Vector3(-0.5, 0.3, 0.8).normalize();
+  rig.setSunDir(night);
+  rig.update({ x: 10, y: 20, z: 30 }, 500);
+  assert.ok(Math.abs(light.position.clone().sub(light.target.position).normalize().dot(night) - 1) < 1e-9, "inactive: the light still follows the sun direction");
+  assert.equal(rig.setStrength(1), true);
+  assert.equal(light.shadow.autoUpdate, true);
+  rig.update({ x: 10, y: 20, z: 30 }, 500);
+  assert.ok(Math.abs(light.position.clone().sub(light.target.position).normalize().dot(night) - 1) < 1e-9, "active again: fitted along the new direction");
+  rig.set("low");
   rig.dispose();
   assert.equal(light.castShadow, false);
   rig.update({ x: 0, y: 0, z: 0 }, 100); // still safe after dispose

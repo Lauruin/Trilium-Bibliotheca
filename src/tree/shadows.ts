@@ -204,6 +204,30 @@ export class SunShadows {
     return this.q !== "off";
   }
 
+  /** Quality is on AND the sun is high enough to cast a shadow (at night / dusk the shadow pass is skipped and the soft blob takes over). */
+  get active(): boolean {
+    return this.q !== "off" && this.strength > 0.03;
+  }
+
+  private strength = 1;
+
+  /** The direction TOWARDS the sun (it moves through the day). */
+  setSunDir(d: THREE.Vector3): void {
+    this.sunDir.copy(d);
+  }
+
+  /** 0..1: how dark the sun's shadows are (fading out towards dusk); below 0.03 the shadow map is no longer re-rendered (the pass is skipped). Returns true when that changed. */
+  setStrength(k: number): boolean {
+    const was = this.active;
+    this.strength = Math.min(1, Math.max(0, k));
+    const sh = this.light.shadow;
+    if (this.q !== "off") {
+      sh.intensity = 0.92 * this.strength;
+      sh.autoUpdate = this.active; // (the light keeps casting: toggling castShadow would recompile every program; a frozen map costs nothing)
+    }
+    return was !== this.active;
+  }
+
   /** Change the quality; returns true when the shadow pass was switched on/off (materials must be refreshed by the caller). */
   set(q: ShadowQuality): boolean {
     if (this.disposed) return false;
@@ -220,7 +244,8 @@ export class SunShadows {
         sh.map = null;
       }
       sh.radius = t.radius;
-      sh.intensity = 0.92;
+      sh.intensity = 0.92 * this.strength;
+      sh.autoUpdate = this.active;
     } else {
       sh.map?.dispose();
       sh.map = null;
@@ -230,7 +255,15 @@ export class SunShadows {
 
   /** Per frame: point the shadow camera at the focus (snapped), sized for the camera distance. */
   update(focus: V3, camDist: number): void {
-    if (this.disposed || this.q === "off") return;
+    if (this.disposed) return;
+    if (!this.active) {
+      // no shadow pass (off, or night): the light still has to come from where the sun is
+      this.light.target.position.set(focus.x, focus.y, focus.z);
+      this.light.position.set(focus.x, focus.y, focus.z).addScaledVector(this.sunDir, 1000);
+      this.light.target.updateMatrixWorld();
+      this.light.updateMatrixWorld();
+      return;
+    }
     const sh = this.light.shadow;
     const fit = fitShadow(focus, shadowExtent(camDist), sh.mapSize.x, this.sunDir);
     this.fit = fit;

@@ -633,6 +633,29 @@ try {
     await page.getByRole("dialog", { name: "Shrine" }).waitFor({ timeout: 15000 });
     if ((await page.locator('[data-testid="shrine-library"]').count()) > 0 && (await page.locator('[data-testid="shrine-wisp"]').count()) > 0) ok("E at the altar opens the shrine panel (library door + wisp sections)");
     else fail("shrine panel lacks its sections");
+    // Clock: the sun, sky and lights follow the hour (fixed hour via the panel); at night the wisp is a lantern
+    {
+      const daySnap = () => page.evaluate(() => { const s = window.__treeScene; const d = s.daylight; return { hours: d.hours, dayK: d.dayK, stars: d.stars, shadow: d.shadowStrength, lantern: s.lanternOn, sunY: d.sunDir.y, intensity: s.sunLightIntensity }; });
+      await page.getByTestId("clock-fixed").click();
+      await page.getByTestId("clock-hour").fill("0");
+      await page.waitForFunction(() => window.__treeScene.daylight.hours === 0 && window.__treeScene.lanternOn, { timeout: 90000 });
+      const night = await daySnap();
+      if (night.dayK < 0.05 && night.stars > 0.9 && night.shadow === 0 && night.lantern && night.sunY < 0 && night.intensity === 0) ok("clock: at midnight the stars are out, the sun is down, no shadows, the wisp is a lantern");
+      else fail(`midnight looks wrong: ${JSON.stringify(night)}`);
+      await page.getByTestId("clock-hour").fill("12");
+      await page.waitForFunction(() => window.__treeScene.daylight.hours === 12 && !window.__treeScene.lanternOn, { timeout: 90000 });
+      const noon = await daySnap();
+      if (noon.dayK > 0.95 && noon.stars === 0 && noon.shadow > 0.95 && !noon.lantern && noon.sunY > 0.3 && noon.intensity > 2.8) ok("clock: at noon it is bright, the sun is high, shadows are full and the lantern is off");
+      else fail(`noon looks wrong: ${JSON.stringify(noon)}`);
+      if ((await page.getByTestId("clock-time").innerText()) === "12:00") ok("clock: the panel shows the world's time");
+      else fail("clock time label wrong");
+      await page.getByTestId("clock-fast").click();
+      const h0 = (await daySnap()).hours;
+      await page.waitForTimeout(4000);
+      await page.waitForFunction((h) => Math.abs(window.__treeScene.daylight.hours - h) > 0.01, h0, { timeout: 60000 });
+      ok("clock: in fast mode the hour moves by itself");
+      await page.getByTestId("clock-real").click(); // leave the player's clock the way it was (real time)
+    }
     // Save in Trilium: off by default (nothing written), switching on only reads, "save now" creates the Yggdrasil folder + save note
     {
       const search = async (q) => (await (await fetch(`${TRILIUM_URL}/etapi/notes?search=${encodeURIComponent(q)}`, { headers: { Authorization: TRILIUM_TOKEN } })).json()).results ?? [];

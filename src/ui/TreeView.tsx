@@ -23,6 +23,7 @@ import { getClient, getState, notify, useAppStore } from "../state/store";
 import type { LibraryTree } from "../types";
 import { dirty, loadNow, saveNow, setSyncOn, syncOn } from "../state/savestore";
 import { setTreeBridge } from "../tree/bridge";
+import { CLOCK_MODES, FAST_MINUTES, hhmm, type ClockMode } from "../tree/clock";
 import { PLACES, placeOf } from "../tree/places";
 import { BranchPanel } from "./BranchPanel";
 import { PerfOverlay } from "./PerfOverlay";
@@ -306,6 +307,65 @@ export function TreeView(props: {
       ),
     },
     {
+      id: "clock",
+      title: "Clock",
+      help: "What time it is in the world. Real time follows your clock (a real day is the world's day), fixed holds one hour, fast runs a whole day in a few minutes. The sun, moon, sky, stars and lights follow; at night the wisp is a lantern.",
+      body: (
+        <>
+          <div className="shrine-row">
+            {CLOCK_MODES.map((m: ClockMode) => (
+              <button
+                key={m}
+                data-testid={`clock-${m}`}
+                className={hud?.clock.mode === m ? "active" : ""}
+                onClick={() => hud && sceneRef.current?.setClock({ ...hud.clock, mode: m })}
+              >
+                {m === "real" ? "real time" : m === "fixed" ? "fixed hour" : "fast"}
+              </button>
+            ))}
+            <span data-testid="clock-time">{hud ? hhmm(hud.hour) : ""}</span>
+          </div>
+          {hud?.clock.mode === "fixed" && (
+            <label className="shrine-row">
+              hour{" "}
+              <input
+                type="range"
+                data-testid="clock-hour"
+                min={0}
+                max={24}
+                step={0.25}
+                value={hud.clock.hour}
+                onChange={(e) => sceneRef.current?.setClock({ ...hud.clock, hour: Number(e.target.value) })}
+              />{" "}
+              {hhmm(hud.clock.hour)}
+            </label>
+          )}
+          {hud?.clock.mode === "fast" && (
+            <div className="shrine-row">
+              a day lasts{" "}
+              {FAST_MINUTES.map((m) => (
+                <button key={m} className={hud.clock.fastMinutes === m ? "active" : ""} onClick={() => sceneRef.current?.setClock({ ...hud.clock, fastMinutes: m })}>
+                  {m} min
+                </button>
+              ))}
+            </div>
+          )}
+          <label className="shrine-row">
+            night brightness{" "}
+            <input
+              type="range"
+              data-testid="clock-night"
+              min={0}
+              max={1}
+              step={0.05}
+              value={hud?.clock.night ?? 0.5}
+              onChange={(e) => hud && sceneRef.current?.setClock({ ...hud.clock, night: Number(e.target.value) })}
+            />
+          </label>
+        </>
+      ),
+    },
+    {
       id: "save",
       title: "Save in Trilium",
       help: "Keep your view settings and progress in a note inside a folder called “Yggdrasil” in your vault, so they follow you between devices. Off by default: nothing is written until you switch it on. The first save creates the folder (labelled biblio_yggdrasil) and a code note “Yggdrasil save” (biblio_save); the app keeps that folder out of your library and trees.",
@@ -388,7 +448,7 @@ export function TreeView(props: {
                 {title(id)}
               </span>
             ))}
-            <span className="dim-line"> · {hud.animal}{hud.airborne ? " · airborne" : ""}{hud.reaching ? " · reaching" : ""}</span>
+            <span className="dim-line"> · {hud.animal}{hud.airborne ? " · airborne" : ""}{hud.reaching ? " · reaching" : ""} · {hhmm(hud.hour)}</span>
           </div>
           {(hud.nearLeaf || hud.climb || hud.aiming || hud.dangling || hud.canSilk || hud.walking || hud.pad || hud.hoverWisp) && (
             <div className="tree-hint">

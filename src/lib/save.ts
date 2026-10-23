@@ -21,6 +21,7 @@ export const SETTING_KEYS = [
   "biblio.v1.treePerf",
   "biblio.v1.treeLayout",
   "biblio.v1.treeWisp",
+  "biblio.v1.treeClock",
   "biblio.v1.reader",
 ] as const;
 

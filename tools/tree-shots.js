@@ -3,7 +3,7 @@
  * Needs a dev server on APP_URL (default http://localhost:5173) and the full chrome (see AGENTS.md,
  * "WebGL in the dev container"). Writes shots/tree-*.png. Usage: node tools/tree-shots.js [scenario...]
  * Scenarios: looks, level, ground (the floating demo log), leaves, squirrel, snake, vault (?vault: a synthetic
- * vault through the real layout — overview, horizon, leaf kinds), kinds (leaf kinds x sizes), animals, shrine (?vault&shrine: the stump's
+ * vault through the real layout — overview, horizon, leaf kinds), kinds (leaf kinds x sizes), animals, daylight (the clock at dawn / noon / dusk / night), shrine (?vault&shrine: the stump's
  * door, altar and the wisp's lantern post; the wisp perched and following)   (default: all)
  */
 import { createRequire } from "node:module";
@@ -127,6 +127,25 @@ if (run("shrine")) {
   await S("s.setCamera('fixed'); s.zoomMul = 3.2; s.moveToPad('door'); s.setFoliage(true)");
   await page.waitForTimeout(2200);
   await shot("shrine-overview");
+}
+if (run("daylight")) {
+  // the world tree's foot at different hours (fixed clock): dawn, noon, dusk, night
+  await page.goto(url + "?vault&shrine&trees=5&depth=1&places=3");
+  await page.waitForFunction(() => window.__treeScene);
+  await page.waitForTimeout(1200);
+  await S("s.setLook('lowpoly'); s.setFoliage(true); s.setLabels('off'); s.setCamera('level'); s.zoomMul = 1.6; s.moveToPad('door')");
+  for (const [name, hour] of [["dawn", 5.9], ["noon", 12.5], ["dusk", 19.2], ["night", 23.5]]) {
+    await S("s.setClock({ mode: 'fixed', hour: a[0], fastMinutes: 6, night: 0.5 })", hour);
+    await page.waitForTimeout(3500);
+    await shot(`daylight-${name}`);
+  }
+  await S("s.setCamera('fixed'); s.zoomMul = 9");
+  for (const [name, hour] of [["noon", 12.5], ["night", 23.5]]) {
+    await S("s.setClock({ mode: 'fixed', hour: a[0], fastMinutes: 6, night: 0.5 })", hour);
+    await page.waitForTimeout(3500);
+    await shot(`daylight-far-${name}`);
+  }
+  await S("s.setClock({ mode: 'real', hour: 12, fastMinutes: 6, night: 0.5 })");
 }
 if (run("kinds")) {
   // the demo twig, both looks: the five leaf kinds and sizes side by side
