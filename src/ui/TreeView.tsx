@@ -26,6 +26,7 @@ import { setTreeBridge } from "../tree/bridge";
 import { CLOCK_MODES, FAST_MINUTES, hhmm, type ClockMode } from "../tree/clock";
 import { PLACES, placeOf } from "../tree/places";
 import { BranchPanel } from "./BranchPanel";
+import { LeafView, type LeafViewNote } from "./LeafView";
 import { PerfOverlay } from "./PerfOverlay";
 import { ShrinePanel, type ShrineSection } from "./ShrinePanel";
 
@@ -69,6 +70,10 @@ export function TreeView(props: {
   const [busy, setBusy] = useState(false);
   /** The shrine panel (E at the altar). */
   const [shrineOpen, setShrineOpen] = useState(false);
+  /** The leaf view (the mite's reader): the leaf being read, or null. */
+  const [leafView, setLeafView] = useState<LeafViewNote | null>(null);
+  /** Short plain-text excerpts of the notes (hover preview), filled by the background loader. */
+  const [excerpts, setExcerpts] = useState<ReadonlyMap<string, string>>(new Map());
   /** Saving progress + settings in Trilium (off by default; the shrine's Save section). */
   const [sync, setSync] = useState({ on: syncOn(), busy: false, msg: "" });
   const deferredPending = useDeferredValue(pending);
@@ -118,7 +123,17 @@ export function TreeView(props: {
     setError(null);
     scene.setWorld(first.world, first.leaves, first.rootBranchId, 120, titlesOf(first, getState().tree));
     applied.current = first;
-    scene.onInteract = (leaf) => openRef.current(leaf.id);
+    const openLeaf = (leaf: { id: string; color: string; title?: string }): void => {
+      const n = getState().tree?.notes[leaf.id];
+      if (!n) return;
+      setLeafView({ id: n.noteId, title: n.title, type: n.type, color: leaf.color, learn: n.learn, noai: n.noai });
+    };
+    scene.onInteract = (leaf) => (scene.creature.animal.id === "mite" ? openLeaf(leaf) : openRef.current(leaf.id)); // the mite reads ON the leaf
+    scene.onAnimal = (a) => {
+      if (a.id !== "mite") return;
+      const near = scene.nearestLeaf(140);
+      if (near) openLeaf(near); // choosing the mite next to a leaf walks onto it
+    };
     scene.setShrine(true);
     scene.moveToShrine(); // you start (and arrive back from the library) at the shrine's door
     scene.onPad = (id) => {
@@ -161,6 +176,11 @@ export function TreeView(props: {
           for (const [id, n] of m) lengths.current.set(id, n);
           scene.setLeafLengths(lengths.current);
         },
+        onExcerpts: (m) => setExcerpts((cur) => {
+          const next = new Map(cur);
+          for (const [id, t] of m) next.set(id, t);
+          return next;
+        }),
       }).catch((e) => console.warn("[tree] leaf sizes", e));
     }
     return () => {
@@ -246,8 +266,8 @@ export function TreeView(props: {
   };
 
   useEffect(() => {
-    if (sceneRef.current) sceneRef.current.enabled = props.enabled && !shrineOpen;
-  }, [props.enabled, layout, shrineOpen]);
+    if (sceneRef.current) sceneRef.current.enabled = props.enabled && !shrineOpen && !leafView;
+  }, [props.enabled, layout, shrineOpen, leafView]);
 
   const readOnlyHost = !!state.settings?.proxy && state.host.server?.readOnly === true;
   const doSave = async (): Promise<void> => {
@@ -438,6 +458,20 @@ export function TreeView(props: {
           }}
         />
       )}
+      {leafView && (
+        <LeafView
+          note={leafView}
+          onClose={(n) => {
+            setLeafView(null);
+            if (n) sceneRef.current?.selectCategory(n); // choosing another animal climbs out of the leaf
+          }}
+          onOpenReader={() => {
+            const id = leafView.id;
+            setLeafView(null);
+            props.onOpenNote(id);
+          }}
+        />
+      )}
       {error && <p className="error-line tree-error">{error}</p>}
       {hud && (
         <>
@@ -498,7 +532,8 @@ export function TreeView(props: {
               {hud.climb && hud.nearLeaf && " · "}
               {hud.nearLeaf && (
                 <span>
-                  <b>E</b> read “{hud.nearLeaf.title}”
+                  <b>E</b> {hud.animalId === "mite" ? "read on the leaf" : "read"} “{hud.nearLeaf.title}”
+                  {excerpts.get(hud.nearLeaf.id) && <span className="tree-excerpt">{excerpts.get(hud.nearLeaf.id)}</span>}
                 </span>
               )}
             </div>
@@ -564,6 +599,7 @@ export function TreeView(props: {
             <div className="tree-hover" style={{ left: hud.hover.x + 14, top: hud.hover.y + 18 }}>
               {hud.hover.title}
               <span className="dim-line"> · click to walk there{hud.hover.leaf ? ", double-click to read" : ""}</span>
+              {hud.hover.id && excerpts.get(hud.hover.id) && <span className="tree-excerpt">{excerpts.get(hud.hover.id)}</span>}
             </div>
           )}
           {hud.gripOn && hud.grip < 0.999 && (

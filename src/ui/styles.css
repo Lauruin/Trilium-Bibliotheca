@@ -719,3 +719,11 @@ button.active {
 .shrine-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .shrine-row button.active { background: #5a3e24; border-color: #d8b868; }
 .tree-pad { color: #ffe9a8; }
+
+/* Leaf view (the mite's reader) -------------------------------------------- */
+.leaf-view { position: fixed; inset: 0; z-index: 40; background: #090c12; }
+.leaf-view canvas { display: block; }
+.leaf-actions { position: absolute; right: 14px; top: 10px; display: flex; gap: 8px; }
+.leaf-actions button { background: #14101cc0; color: #e8dcc0; border: 1px solid #8a6a48; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.leaf-actions button:hover { background: #2a1c12; }
+.tree-excerpt { display: block; margin-top: 3px; max-width: 380px; white-space: normal; font-size: 12px; color: #cfc4a8; font-style: italic; }

@@ -145,9 +145,26 @@ function toNoteInfo(n: EtapiNote, hasChildren: boolean): NoteInfo {
       labels[a.name.toLowerCase()] = a.value ?? "";
     }
   }
+  const learn = flagLabel(n, LABELS.learn);
+  const noai = flagLabel(n, LABELS.noai);
   const info: NoteInfo = { noteId: n.noteId, title: n.title, type: n.type === "code" && /markdown/i.test(String(n.mime ?? "")) ? "markdown" : n.type, labels, hasChildren };
   if (typeof n.blobId === "string") info.blobId = n.blobId;
+  if (learn) info.learn = true;
+  if (noai) info.noai = true;
   return info;
+}
+
+/** A flag label (`biblio_learn`, `biblio_noai`): ON when the note carries it itself or inherits it; an own label with the value false / 0 / no / off switches an inherited one off. */
+export function flagLabel(n: EtapiNote, name: string): boolean {
+  let own: boolean | null = null;
+  let inherited = false;
+  for (const a of n.attributes ?? []) {
+    if (a.type !== "label" || a.name.toLowerCase() !== name) continue;
+    const on = !/^(false|0|no|off)$/i.test((a.value ?? "").trim());
+    if (a.noteId === undefined || a.noteId === n.noteId) own = on;
+    else if (a.isInheritable === true && on) inherited = true;
+  }
+  return own ?? inherited;
 }
 
 /** Children of `noteId` in tree order. */

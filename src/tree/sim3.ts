@@ -215,6 +215,24 @@ export const ANT: Animal = {
   leap: null, reach: { speed: 130, max: 130 },
 };
 
+/**
+ * The MITE: the smallest and slowest animal (scaled() to a few px in ANIMALS). Eight legs, clings to anything. It walks the tree like any
+ * crawler, but its job is READING: with the mite selected and a leaf within reach, E (or choosing the mite next to a leaf) opens the
+ * LEAF VIEW (ui/LeafView.tsx: the note's text on a magnified leaf); choosing any other animal climbs back out of it.
+ */
+export const MITE: Animal = {
+  id: "mite", name: "Mite",
+  nodes: [{ d: 0, w: 2.8 }, { d: 5, w: 4.2 }, { d: 11, w: 5.4 }, { d: 16, w: 4.2 }],
+  legs: [
+    { node: 1, side: 1, group: 0, lead: 4 }, { node: 1, side: -1, group: 1, lead: 4 },
+    { node: 1, side: 1, group: 1, lead: 1 }, { node: 1, side: -1, group: 0, lead: 1 },
+    { node: 2, side: 1, group: 0, lead: -2 }, { node: 2, side: -1, group: 1, lead: -2 },
+    { node: 2, side: 1, group: 1, lead: -5 }, { node: 2, side: -1, group: 0, lead: -5 },
+  ],
+  speed: 34, turnRate: 3.5, stride: 6, splay: 9, stepTime: 0.08, body: "#b5472c", belly: "#e8c090", scale: 1,
+  leap: null, clings: true,
+};
+
 /** Eight legs, high knees; clings to anything (no grip loss). */
 export const SPIDER: Animal = {
   id: "spider", name: "Spider",
@@ -316,12 +334,12 @@ export function scaled(a: Animal, k: number): Animal {
 
 export const ANIMALS: Animal[] = [
   scaled(LIZARD, 1.5), scaled(SNAKE, 1.5), scaled(ANT, 0.55), scaled(CAT, 1.9), scaled(SQUIRREL, 1.7),
-  scaled(SPIDER, 1.6), scaled(BEE, 1.1), scaled(DRAGONFLY, 1.1), scaled(BLUEJAY, 1.6), scaled(JUMPER, 1.12),
+  scaled(SPIDER, 1.6), scaled(BEE, 1.1), scaled(DRAGONFLY, 1.1), scaled(BLUEJAY, 1.6), scaled(JUMPER, 1.12), scaled(MITE, 0.55),
 ];
 
 /** The number keys: 1/2/3 pick a category, pressing the same key again cycles through its animals. */
 export const ANIMAL_CATEGORIES: ReadonlyArray<{ label: string; ids: readonly string[] }> = [
-  { label: "Crawlers", ids: ["ant", "spider", "jumper", "snake"] },
+  { label: "Crawlers", ids: ["ant", "spider", "jumper", "snake", "mite"] },
   { label: "Walkers", ids: ["lizard", "cat"] },
   { label: "Fliers", ids: ["squirrel", "bee", "dragonfly", "bluejay"] },
 ];

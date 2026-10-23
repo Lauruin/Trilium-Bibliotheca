@@ -768,8 +768,8 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
   assert.deepEqual(c1.calls.sort(), ["n1", "n2"], "non-measurable types are not fetched");
   assert.deepEqual([...res.all].sort(), [["n1", N + 1], ["n2", N + 2]]);
   const saved = JSON.parse(store.get(KEY));
-  assert.deepEqual(saved, { n1: { blob: "A", len: N + 1 }, n2: { blob: "B", len: N + 2 } });
-  assert.ok(!store.get(KEY).includes("SECRET"), "content is never persisted");
+  assert.deepEqual(saved, { n1: { blob: "A", len: N + 1, ex: SECRET + "x" }, n2: { blob: "B", len: N + 2, ex: SECRET + "xx" } });
+  assert.ok(saved.n1.ex.length <= 161, "only a short excerpt (<= 160 chars) is persisted, never the content itself (see unit-leaf.mjs for the cut)");
   // cache hit: same blob = no fetch and an immediate first batch; changed blob = refetch; no blobId = never trusted
   c1 = mkClient();
   res = await run(c1, [{ noteId: "n1", type: "text", blobId: "A" }, { noteId: "n2", type: "text", blobId: "B2" }, { noteId: "n3", type: "text" }]);
@@ -1294,7 +1294,7 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
     let lzSlipped = false;
     for (let i = 0; i < 60 * 4; i++) { S.step(hw, lz2, idle, 1 / 60); if (lz2.air && lz2.air.slip) lzSlipped = true; }
     assert.ok(lzSlipped, "lizard slips from the underside");
-    assert.deepEqual(S.ANIMALS.filter((x) => x.clings).map((x) => x.id).sort(), ["jumper", "spider"], "only the spiders cling");
+    assert.deepEqual(S.ANIMALS.filter((x) => x.clings).map((x) => x.id).sort(), ["jumper", "mite", "spider"], "only the spiders and the mite cling");
   }
 
   // --- auto-align + thin-branch steering ---
@@ -1367,7 +1367,7 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
     const pick = (n, id) => { const i = S.animalForKey(n, id); return i < 0 ? -1 : S.ANIMALS[i].id; };
     let id = "lizard";
     const seq = (n, ids) => { for (const want of ids) { id = pick(n, id); assert.equal(id, want, `key ${n}`); } };
-    seq(1, ["ant", "spider", "jumper", "snake", "ant"]);
+    seq(1, ["ant", "spider", "jumper", "snake", "mite", "ant"]);
     id = "snake"; seq(2, ["lizard", "cat", "lizard"]);
     id = "ant"; seq(3, ["squirrel", "bee", "dragonfly", "bluejay", "squirrel"]);
     for (const n of [0, 4, 9, -1, 1.5, NaN]) assert.equal(S.animalForKey(n, "lizard"), -1, `invalid key ${n}`);
@@ -2200,13 +2200,13 @@ const fake = (notes) => ({ getNote: async (id) => notes[id] });
     assert.deepEqual(S.ANIMALS.filter((x) => x.silk).map((x) => x.id).sort(), ["jumper", "spider"], "silk = the spiders");
     assert.deepEqual(S.ANIMALS.filter((x) => x.leap).map((x) => x.id).sort(), ["cat", "jumper", "lizard", "squirrel"], "leap = lizard, cat, squirrel, jumper");
     assert.deepEqual(S.ANIMALS.filter((x) => x.reach).map((x) => x.id).sort(), ["ant", "snake"], "reach = ant, snake");
-    assert.deepEqual(S.ANIMAL_CATEGORIES.map((x) => x.ids), [["ant", "spider", "jumper", "snake"], ["lizard", "cat"], ["squirrel", "bee", "dragonfly", "bluejay"]]);
+    assert.deepEqual(S.ANIMAL_CATEGORIES.map((x) => x.ids), [["ant", "spider", "jumper", "snake", "mite"], ["lizard", "cat"], ["squirrel", "bee", "dragonfly", "bluejay"]]);
     const pick = (n, id) => S.ANIMALS[S.animalForKey(n, id)].id;
     let cur = "lizard";
-    assert.deepEqual([1, 2, 3, 4, 5].map(() => (cur = pick(1, cur))), ["ant", "spider", "jumper", "snake", "ant"], "key 1 cycles through the crawlers");
+    assert.deepEqual([1, 2, 3, 4, 5, 6].map(() => (cur = pick(1, cur))), ["ant", "spider", "jumper", "snake", "mite", "ant"], "key 1 cycles through the crawlers");
     // who may walk on threads
     const may = Object.fromEntries(S.ANIMALS.map((x) => [x.id, S.canUseThreads(x)]));
-    assert.deepEqual(may, { lizard: false, snake: false, ant: true, cat: false, squirrel: false, spider: true, bee: true, dragonfly: true, bluejay: false, jumper: true });
+    assert.deepEqual(may, { lizard: false, snake: false, ant: true, cat: false, squirrel: false, spider: true, bee: true, dragonfly: true, bluejay: false, jumper: true, mite: true });
   }
 
   // --- Space: crawlers never aim; ant / snake reach, spider does nothing; lizard / cat / squirrel / jumper aim ---

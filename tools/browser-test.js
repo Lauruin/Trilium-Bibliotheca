@@ -633,6 +633,33 @@ try {
     await page.getByRole("dialog", { name: "Shrine" }).waitFor({ timeout: 15000 });
     if ((await page.locator('[data-testid="shrine-library"]').count()) > 0 && (await page.locator('[data-testid="shrine-wisp"]').count()) > 0) ok("E at the altar opens the shrine panel (library door + wisp sections)");
     else fail("shrine panel lacks its sections");
+    // The mite reads ON a leaf: choosing it next to a leaf opens the leaf view; W/S walks the text; another animal climbs back out
+    {
+      await page.evaluate(() => {
+        const sc = window.__treeScene;
+        const lf = sc.leaves.find((x) => /Weekly review/i.test(x.title ?? "")) ?? sc.leaves.find((x) => x.type === "text") ?? sc.leaves[0];
+        sc.respawn(lf.branchId, lf.s);
+        sc.creature.head.th = lf.th;
+        window.__leafTitle = lf.title;
+      });
+      await page.waitForTimeout(500);
+      await page.evaluate(() => window.__treeScene.chooseAnimal("mite"));
+      await page.getByTestId("leaf-view").waitFor({ timeout: 30000 });
+      await page.waitForFunction(() => document.querySelector('[data-testid="leaf-view"]')?.getAttribute("data-status") === "ready", { timeout: 30000 });
+      const info = await page.getByTestId("leaf-view").evaluate((el) => ({ lines: Number(el.dataset.lines), text: el.dataset.text, blade: el.dataset.blade, chars: Number(el.dataset.chars) }));
+      if (info.lines > 0 && info.chars > 20) ok(`leaf view: the mite opened "${await page.evaluate(() => window.__leafTitle)}" (${info.chars} characters, ${info.lines} lines on a ${info.blade} leaf: "${info.text.slice(0, 40)}…")`);
+      else fail(`leaf view is empty: ${JSON.stringify(info)}`);
+      await page.keyboard.down("s");
+      await page.waitForTimeout(700);
+      await page.keyboard.up("s");
+      const prog = await page.getByTestId("leaf-view").getAttribute("data-progress");
+      if (Number(prog) > 0 || info.lines < 3) ok("leaf view: S walks the mite down the text");
+      else fail(`the mite did not move (progress ${prog})`);
+      await page.keyboard.press("2"); // another animal: climb back out
+      await page.getByTestId("leaf-view").waitFor({ state: "detached", timeout: 10000 });
+      if ((await page.evaluate(() => window.__treeScene.creature.animal.id)) === "lizard") ok("leaf view: choosing another animal (2) climbs back out into the tree");
+      else fail("the animal did not change on leaving the leaf");
+    }
     // Clock: the sun, sky and lights follow the hour (fixed hour via the panel); at night the wisp is a lantern
     {
       const daySnap = () => page.evaluate(() => { const s = window.__treeScene; const d = s.daylight; return { hours: d.hours, dayK: d.dayK, stars: d.stars, shadow: d.shadowStrength, lantern: s.lanternOn, sunY: d.sunDir.y, intensity: s.sunLightIntensity }; });

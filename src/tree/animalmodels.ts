@@ -602,6 +602,25 @@ export const BLUEJAY_MODEL: Model = {
   breathe: 0.03,
 };
 
+// THE MITE (a tiny reader) --------------------------------------------------------------------------
+const MT = { body: "#b5472c", dark: "#7a2c1c", pale: "#e8c090", leg: "#8a3a24", eye: "#1a0c0a" };
+export const MITE_MODEL: Model = {
+  level: true,
+  stance: 0.9,
+  tubes: [{
+    d0: 4, d1: 17, step: 2.5, voxStep: 4.2, sides: 8, prof: ovoid(4, 17, 5.2, 4.6, 0.8),
+    color: (c) => (c.phi > 2.0 ? MT.dark : c.i % 4 === 1 ? MT.pale : MT.body),
+  }],
+  atts: [
+    { kind: "blob", d: 0, at: [1, 0.6, 0], size: [4.4, 3.8, 4], col: MT.body, shade: 1.1, frame: "head" },
+    { kind: "blob", d: 0, at: [2.4, 1.9, 1.2], size: [1.2, 1.2, 1.2], col: MT.eye, frame: "head", mirror: true, lo: true },
+    { kind: "stick", d: 0, at: [2.6, 0.6, 1.1], to: [5, 0, 1.6], size: [0.5, 0.35, 0], col: MT.leg, frame: "head", mirror: true },
+  ],
+  legs: () => ({ len: 1.5, bend: [0, 1, 0.5], th: [1.1, 0.85, 0.55], split: 0.5, ankle: 1.8, col: MT.leg, joint: MT.dark }),
+  head: { look: 0.4, nod: 0.08, bob: 0.05 },
+  breathe: 0.02,
+};
+
 export const MODELS: Record<string, Model> = {
   lizard: LIZARD_MODEL,
   cat: CAT_MODEL,
@@ -613,5 +632,6 @@ export const MODELS: Record<string, Model> = {
   bee: BEE_MODEL,
   dragonfly: DRAGONFLY_MODEL,
   bluejay: BLUEJAY_MODEL,
+  mite: MITE_MODEL,
 };
 

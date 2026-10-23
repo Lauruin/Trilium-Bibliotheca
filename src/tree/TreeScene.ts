@@ -111,7 +111,7 @@ export interface HudInfo {
   /** The pointer is over the wisp (a click opens the search). */
   hoverWisp: boolean;
   /** What is under the pointer (a leaf's or a branch's title) and where, in pixels inside the view; null when nothing / not hovering. */
-  hover: { title: string; leaf: boolean; x: number; y: number } | null;
+  hover: { title: string; leaf: boolean; id?: string; x: number; y: number } | null;
 }
 
 /** What the stats overlay shows (see tree/perf.ts for how to read it). */
@@ -188,6 +188,8 @@ export class TreeScene {
   onHud: ((h: HudInfo) => void) | null = null;
   /** E pressed near a leaf. */
   onInteract: ((leaf: Leaf) => void) | null = null;
+  /** An animal was chosen (the tree view opens the leaf view when it is the mite and a leaf is near). */
+  onAnimal: ((a: Animal) => void) | null = null;
   /** E pressed at a shrine pad (door / altar / wisp), or the wisp was clicked. */
   onPad: ((id: PadId) => void) | null = null;
   /** The shrine (the stump's door, altar and the wisp's lantern post) exists only in the app (TreeView turns it on), not on the demo page. */
@@ -467,6 +469,15 @@ export class TreeScene {
     this.creature = spawn(this.world, a, h.b, h.s, this.moveMode);
     this.creature.gripOn = gripOn;
     this.creature.autoAlign = autoAlign;
+    this.onAnimal?.(a);
+  }
+
+  /** Choose an animal by id (tests, the HUD); false for an unknown id. */
+  chooseAnimal(id: string): boolean {
+    const a = ANIMALS.find((x) => x.id === id);
+    if (!a) return false;
+    this.setAnimal(a);
+    return true;
   }
 
   /** Number key n (1-based): pick that category, or cycle within it when it is already the current one. */
@@ -1392,7 +1403,7 @@ export class TreeScene {
       walking: !!this.pilot,
       pad: this.hudPad ? { id: this.hudPad.id, label: this.hudPad.label } : null,
       wispMode: this.wispMode, wispGuiding: this.wispGuide !== null, hoverWisp: this.hoverWisp, hour: this.day.hours, clock: this.worldClock.state,
-      hover: this.hover && this.hover.title ? { title: this.hover.title, leaf: this.hover.pick.kind === "leaf", x: this.hover.x, y: this.hover.y } : null,
+      hover: this.hover && this.hover.title ? { title: this.hover.title, leaf: this.hover.pick.kind === "leaf", id: this.hover.pick.kind === "leaf" ? this.hover.pick.leaf.id : undefined, x: this.hover.x, y: this.hover.y } : null,
     });
   }
 

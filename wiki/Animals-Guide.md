@@ -25,6 +25,7 @@ Sizes and speeds are in world units after the per-animal scale in `ANIMALS` (the
 | Spider | Crawlers | small | ~50 | 136 | Eight legs, high knees; **clings**: never loses grip, even fully underneath; **cannot jump**; spins **silk** (`X` tap: drop; hold `X` down, `Space` up, `WASD` swing, `Shift` let go, `C` cut; climbable, persistent threads) |
 | Jumping spider | Crawlers | small | ~34 | 106 | Dark body with an orange-red abdomen; **clings**; the one crawler that **jumps** (strong for its size, about 20 body lengths on the flat) with the full aim; also spins silk (a shorter rope) |
 | Snake | Crawlers | very long | ~945 | 165 | **Cannot jump**; hold `Space` to **reach** (up to ~645) as a living bridge; judged by its whole body for grip |
+| Mite | Crawlers | microscopic | ~9 | 19 | The tiniest and slowest (x0.55 of a 16-unit body, speed 34 x 0.55); **clings**; cannot jump or reach; can walk on silk threads; **reads on leaves**: next to a leaf, `E` (or choosing the mite) opens the leaf view, see below |
 | Lizard | Walkers | large | ~286 | 221 | The all-rounder; normal leap, aimed |
 | Cat | Walkers | large | ~253 | 323 | Fastest walker, strongest leap (aimed); **mostly stays on top** (a cling limit of about 69 degrees from the top) |
 | Flying squirrel | Fliers | medium | ~153 | 238 | Aimed like the others, but every leap is a **glide** you can steer, dive and flare |
@@ -95,6 +96,10 @@ If you touch a branch while hanging or after letting go, you **land** there and 
 ### The mouse camera steers aimed actions
 
 In the **mouse camera** (fourth entry of `V`) the direction the camera looks steers everything that is aimed instead of `A`/`D`/`W`/`S`: the **reach** of the snake and the ant (the head turns towards where you look, pitch follows the elevation), the **jump aim** (yaw and pitch follow the camera at up to 3.5 rad/s; a manual key still wins that axis), **flight** (the heading turns to the camera; the hover fliers fly where you look, so `W` also climbs when you look up; the jay's pitch follows the camera's elevation) and the **spider's swing**. Walking itself is unchanged (guided keys read against the branch).
+
+### The mite and the leaf view
+
+The mite (`1` cycles through the crawlers: ant, spider, jumping spider, snake, mite) is built for **reading**. With the mite selected, standing near a leaf (within about 140 units), pressing `E` (or double-clicking the leaf, or choosing the mite when you already stand next to one) switches to the **leaf view**: one full-screen canvas with a single magnified leaf (the size follows the note's length up to a cap: `bladeSize`), the note's text laid out on it as plain text (`lib/leafreader.ts`: headings, paragraphs, lists, quotes and code from the note's HTML / markdown / source; scripts, styles and all tags are dropped), and the mite walking on the text. `S`/`Down` read on, `W`/`Up` back, `A`/`D` sideways, the mouse wheel / `PageUp` / `PageDown` / `Space` scroll; a note longer than the leaf scrolls past along its midrib as the mite walks; the line under the mite is highlighted. `R` / `Enter` open the normal reader (images, tables, links), `Esc` or the number keys `1`/`2`/`3` (another animal) climb back out into the tree where you were. Types without text (images, canvases) show a notice and offer the reader. A leaf whose note is **learnable** (label `biblio_learn`, own or inherited) says so in the corner; the gardener and the quiz modes will only ever use such notes, and `biblio_noai` keeps a note away from any AI provider.
 
 ### Glide (flying squirrel)
 

@@ -10,7 +10,7 @@ export default async ({ bundle, assert }) => {
   const A = (id) => S.ANIMALS.find((a) => a.id === id);
   const DT = 1 / 60;
   const idle = S.NO_INPUT;
-  const WALKERS = ["lizard", "cat", "squirrel", "ant", "spider", "jumper", "snake"];
+  const WALKERS = ["lizard", "cat", "squirrel", "ant", "spider", "jumper", "snake", "mite"];
   const ALL = S.ANIMALS.map((a) => a.id);
   const W_ = { forward: true }, S_ = { back: true }, A_ = { left: true }, D_ = { right: true };
   const run = (w, c, keys, secs, each) => {

@@ -30,6 +30,13 @@ export interface NoteInfo {
   hasChildren: boolean;
   /** Trilium's content hash id; changes when the content does (leaf size cache key). */
   blobId?: string;
+  /**
+   * THE LEARNING GATE: true when the note carries the label `biblio_learn` itself or inherits it (an inheritable label on an ancestor folder).
+   * Only such notes may be the target of any learning mode (the gardener's corrupted leaves, quizzes ...). Absent = never a target.
+   */
+  learn?: boolean;
+  /** True when the note carries (or inherits) `biblio_noai`: its text is never sent to an AI provider, even if it is `learn`. */
+  noai?: boolean;
 }
 
 /**
