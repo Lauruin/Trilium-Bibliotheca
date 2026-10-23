@@ -31,6 +31,14 @@
 # `*` makes the cross-origin fetch from the app's origin (any port) work;
 # on a real instance you'd allow this origin instead (see README).
 #
+# HOSTED MODE (optional): set these in a `.env` file next to this one (or the shell) and the app serves your Trilium on ITS OWN
+# origin: nginx proxies /etapi/ to it and adds the token server-side, so the browser never holds the token and no CORS is needed;
+# put your SSO (Pangolin, ...) in front of this one container. Unset = the plain static app (the user enters a server + token).
+#   BIBLIO_TRILIUM_URL=http://trilium:8080      BIBLIO_TRILIUM_TOKEN=<ETAPI token>      BIBLIO_TRILIUM_READONLY=1 (optional)
+#   BIBLIO_TRILIUM_ROOT_NOTE_ID=root  BIBLIO_TRILIUM_NAME="My notes"  BIBLIO_TRILIUM_PUBLIC_URL=https://trilium.example.com
+#   BIBLIO_AI_PROVIDER=anthropic|openai-compatible  BIBLIO_AI_BASE_URL=...  BIBLIO_AI_KEY=...  BIBLIO_AI_MODEL=claude-haiku-5-5
+# Details: docker/30-biblio-config.sh (the validated variables) and README "Hosting".
+#
 # Note the read_only rootfs + tmpfs /tmp pair, and that nginx's writable
 # paths are redirected to /tmp in docker/nginx.conf — see the nginx gotcha
 # in AGENTS.md.
@@ -51,6 +59,17 @@ services:
         condition: service_healthy
     security_opt:
       - no-new-privileges:true
+    environment:
+      TRILIUM_URL: ${BIBLIO_TRILIUM_URL:-}
+      TRILIUM_TOKEN: ${BIBLIO_TRILIUM_TOKEN:-}
+      TRILIUM_READONLY: ${BIBLIO_TRILIUM_READONLY:-}
+      TRILIUM_ROOT_NOTE_ID: ${BIBLIO_TRILIUM_ROOT_NOTE_ID:-}
+      TRILIUM_NAME: ${BIBLIO_TRILIUM_NAME:-}
+      TRILIUM_PUBLIC_URL: ${BIBLIO_TRILIUM_PUBLIC_URL:-}
+      AI_PROVIDER: ${BIBLIO_AI_PROVIDER:-}
+      AI_BASE_URL: ${BIBLIO_AI_BASE_URL:-}
+      AI_KEY: ${BIBLIO_AI_KEY:-}
+      AI_MODEL: ${BIBLIO_AI_MODEL:-}
 
   trilium:
     image: triliumnext/trilium:v0.106.0

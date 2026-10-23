@@ -17,7 +17,8 @@ import { DEFAULT_ROOT_NOTE_ID } from "./config";
 import { startGame } from "./game/game";
 import { bus } from "./game/events";
 import { sharedText } from "./lib/capture";
-import { loadSettings, loadTreeCache, saveSettings, saveTreeCache } from "./lib/cache";
+import { clearSettings, loadSettings, loadTreeCache, saveSettings, saveTreeCache } from "./lib/cache";
+import { chooseSettings, fetchServerConfig } from "./lib/serverconfig";
 import { computePlacements, saveRoomPosition } from "./lib/layout";
 import { walkLibraryTree } from "./lib/library";
 import { TriliumApiError } from "./lib/trilium/client";
@@ -47,6 +48,8 @@ export default function App(): React.JSX.Element {
   const [view, setView] = useState<"library" | "tree">("library");
   /** Text handed over by the OS share sheet (PWA share target), consumed once. */
   const [shared, setShared] = useState<string | null>(null);
+  /** A share arrived with the page load (the ref survives StrictMode's second effect run, which no longer sees the query). */
+  const shareArrived = useRef(false);
 
   // --- Phaser boot (once) ---------------------------------------------------
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -62,14 +65,26 @@ export default function App(): React.JSX.Element {
     if (incoming !== null) {
       window.history.replaceState(null, "", window.location.pathname); // don't re-capture on reload
       setShared(incoming);
+      shareArrived.current = true;
     }
-    const s = loadSettings();
-    if (s) {
-      setState({ settings: s, conn: "connecting" });
-      if (incoming !== null) setCaptureOpen(true);
-    } else {
-      setSettingsOpen(true);
-    }
+    let alive = true;
+    void (async () => {
+      // what the host configured (hosted mode); a dev server / a plain deployment answers "nothing"
+      const host = await fetchServerConfig();
+      if (!alive) return;
+      setState({ host });
+      const s = chooseSettings(loadSettings(), host);
+      if (s) {
+        resetClient();
+        setState({ settings: s, conn: "connecting" });
+        if (shareArrived.current) setCaptureOpen(true);
+      } else {
+        setSettingsOpen(true);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // --- connection lifecycle ---------------------------------------------------
@@ -100,7 +115,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     void refresh();
     // Re-run when credentials change (settings save resets the client).
-  }, [state.settings?.serverUrl, state.settings?.token, refresh]);
+  }, [state.settings?.serverUrl, state.settings?.token, state.settings?.proxy, refresh]);
 
   // --- Phaser → React events -------------------------------------------------
   useEffect(() => {
@@ -294,7 +309,12 @@ function handleRefreshError(err: unknown): void {
   }
   if (err instanceof TriliumApiError && err.isAuthError) {
     setState({ conn: "error" });
-    notify("error", "Trilium rejected the token — check settings (server URL / token).");
+    notify(
+      "error",
+      getState().settings?.proxy
+        ? "The host's Trilium token was rejected: ask whoever runs this app (or connect to your own server in the settings)."
+        : "Trilium rejected the token — check settings (server URL / token).",
+    );
     return;
   }
   setState({ conn: "error" });
@@ -311,4 +331,11 @@ export function applySettings(s: Settings): void {
   saveSettings(s);
   resetClient();
   setState({ settings: s });
+}
+
+/** Hosted mode: forget the user's own server and use the host's (the proxied one) again. */
+export function useHostServer(): void {
+  clearSettings();
+  resetClient();
+  setState({ settings: chooseSettings(null, getState().host) });
 }

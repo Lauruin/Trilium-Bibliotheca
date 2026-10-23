@@ -50,10 +50,12 @@ export class TriliumApiError extends Error {
 }
 
 export interface TriliumClientOptions {
-  /** Trilium base URL without /etapi, e.g. "http://localhost:8080". */
+  /** Trilium base URL without /etapi, e.g. "http://localhost:8080". "" = this app's own origin (hosted mode: nginx proxies /etapi/). */
   baseUrl: string;
-  /** ETAPI token. Omitted only for login() itself. */
+  /** ETAPI token. Omitted only for login() itself, and in hosted mode (the proxy injects it). */
   token?: string;
+  /** Refuse every write up front (hosted mode with a read-only proxy). The proxy enforces it too; this just gives a clear error. */
+  readOnly?: boolean;
 }
 
 export class TriliumClient {
@@ -197,8 +199,14 @@ export class TriliumClient {
     return this.request<SearchResponse>(`/notes?search=${encodeURIComponent(query)}`);
   }
 
+  /** Throws when this client is read-only: called first by every write. */
+  private assertWritable(): void {
+    if (this.opts.readOnly) throw new TriliumApiError(403, "READ_ONLY", "This server is read-only: nothing can be changed from here.");
+  }
+
   /** Create a note under a parent. Used by tests and future write features. */
   createNote(def: CreateNoteDef): Promise<NoteWithBranch> {
+    this.assertWritable();
     return this.request<NoteWithBranch>("/create-note", {
       method: "POST",
       body: JSON.stringify(def),
@@ -211,6 +219,7 @@ export class TriliumClient {
 
   /** Create a label on a note. */
   createAttribute(def: CreateAttributeDef): Promise<EtapiAttribute> {
+    this.assertWritable();
     return this.request<EtapiAttribute>("/attributes", {
       method: "POST",
       body: JSON.stringify(def),
@@ -222,6 +231,7 @@ export class TriliumClient {
     attributeId: string,
     patch: { value?: string; position?: number },
   ): Promise<EtapiAttribute> {
+    this.assertWritable();
     return this.request<EtapiAttribute>(`/attributes/${encodeURIComponent(attributeId)}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
@@ -230,6 +240,7 @@ export class TriliumClient {
 
   /** Delete an attribute by id. */
   deleteAttribute(attributeId: string): Promise<void> {
+    this.assertWritable();
     return this.request<void>(`/attributes/${encodeURIComponent(attributeId)}`, {
       method: "DELETE",
     });

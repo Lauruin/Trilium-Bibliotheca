@@ -117,9 +117,21 @@ docker compose up -d --build bibliotheca     # nginx serving the static bundle o
 
 Reach it at `http://dind:8081` from inside the container network, or `http://localhost:18081`
 from a host browser when the devcontainer sidecar publishes it (see the port table below).
-The image is stateless: no token, no volumes, read-only root filesystem. The build runs the strict
-type-check, so a type error fails the image build. When you point it at a real Trilium, add this
-app's origin to that Trilium's `corsAllowOrigin`.
+The image is stateless: no volumes, read-only root filesystem. The build runs the strict
+type-check, so a type error fails the image build. Without configuration it is the plain app: each
+visitor enters a server + token and the browser talks to that Trilium directly, so add this app's
+origin to that Trilium's `corsAllowOrigin`.
+
+**Hosted mode (single origin).** Put variables in a `.env` next to `compose.yml` (`.env.example` lists them):
+`BIBLIO_TRILIUM_URL` (where the container reaches Trilium), `BIBLIO_TRILIUM_TOKEN` (an ETAPI token; it stays
+in the container), optional `BIBLIO_TRILIUM_READONLY=1`, `_ROOT_NOTE_ID`, `_NAME`, `_PUBLIC_URL`. nginx then proxies
+`/etapi/` and adds the token itself, so no CORS is needed and the browser never holds a token; `/config.json`
+(no secrets) tells the app, which opens with that server preselected (a server entered in Settings still wins).
+Optional AI: `BIBLIO_AI_PROVIDER` (`anthropic`, default model `claude-haiku-5-5`, or `openai-compatible`),
+`BIBLIO_AI_KEY`, `BIBLIO_AI_BASE_URL`, `BIBLIO_AI_MODEL`: nginx forwards only the one chat endpoint, rate limited,
+with the key added server-side (no feature uses it yet). A bad value stops the container with a message
+(`docker logs bibliotheca-web`). Test it: `npm run test:proxy` (builds the image, runs it against the mock; 23 checks,
+`--browser` adds a real-browser pass).
 
 ## 4. First run: the settings dialog
 

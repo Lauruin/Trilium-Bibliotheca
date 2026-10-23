@@ -180,6 +180,7 @@ npx tsc -b && node tools/unit-test.mjs && node tools/browser-test.js   # non-des
 npm run test:mock               # mock tooling: fake vs real mock conformance, vault generator, CLIs (non-destructive, ~2 s; 33 checks with --no-real)
 node tools/unit-test.mjs        # unit tests only (21 sections, ~800 assertions, ~2 s; 11–21 = tree rails, layout, leaf kinds/sizes, fliers, radius model, forest + species + editable properties, leap aiming, ant/jumping spider/silk, treeedit, markdown mime)
 APP_URL=http://dind:8081 node tools/browser-test.js   # browser pass against the hosted container
+npm run test:proxy              # hosted mode: builds the image, runs it with a token + fake AI against the mock (token injection, read-only, /config.json, AI proxy; --browser, --no-build; needs the mock)
 tools/etapi-probe.sh            # ETAPI contract assertions (creates/deletes notes under root of the mock)
 ```
 

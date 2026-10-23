@@ -16,19 +16,21 @@
 import { useState } from "react";
 import { DEFAULT_ROOT_NOTE_ID } from "../config";
 import { TriliumClient } from "../lib/trilium/client";
-import { getState } from "../state/store";
-import { applySettings } from "../App";
+import { getState, useAppStore } from "../state/store";
+import { applySettings, useHostServer } from "../App";
 
 export function SettingsModal(props: {
   onClose: () => void;
   onSaved: () => void;
 }): React.JSX.Element {
   const existing = getState().settings;
+  const host = useAppStore().host;
+  const ownServer = existing && !existing.proxy ? existing : null; // (hosted mode keeps no URL / token of its own)
   // VITE_* vars (see .env.example) seed the fields on first run only.
   const [serverUrl, setServerUrl] = useState(
-    existing?.serverUrl ?? import.meta.env.VITE_TRILIUM_URL ?? "http://localhost:8080",
+    ownServer?.serverUrl ?? import.meta.env.VITE_TRILIUM_URL ?? "http://localhost:8080",
   );
-  const [token, setToken] = useState(existing?.token ?? import.meta.env.VITE_TRILIUM_TOKEN ?? "");
+  const [token, setToken] = useState(ownServer?.token ?? import.meta.env.VITE_TRILIUM_TOKEN ?? "");
   const [password, setPassword] = useState("");
   const [rootNoteId, setRootNoteId] = useState(existing?.rootNoteId ?? DEFAULT_ROOT_NOTE_ID);
   const [error, setError] = useState<string | null>(null);
@@ -68,8 +70,27 @@ export function SettingsModal(props: {
           <h2>Connect to Trilium</h2>
           <button onClick={props.onClose} title="Close">✕</button>
         </header>
+        {host.server && (
+          <div className="host-box" data-testid="host-server">
+            <b>This app comes with a Trilium server: {host.server.name}</b>
+            <span className="dim-line">
+              {existing?.proxy ? "You are using it now." : "You are using your own server (below)."}{" "}
+              It is reached through this page's own address; the access token stays on the host and never reaches your browser.
+              {host.server.readOnly ? " It is read-only: nothing you do here can change your notes." : ""}
+            </span>
+            <button
+              onClick={() => {
+                useHostServer();
+                props.onSaved();
+              }}
+              disabled={!!existing?.proxy}
+            >
+              {existing?.proxy ? "using the host's server" : "use the host's server"}
+            </button>
+          </div>
+        )}
         <p className="dim-line">
-          The app talks straight to your Trilium's ETAPI. Cross-origin access must be
+          {host.server ? "Or connect to a Trilium of your own. " : ""}The app talks straight to your Trilium's ETAPI. Cross-origin access must be
           allowed by the server (<code>TRILIUM_NETWORK_CORS_ALLOW_ORIGIN</code>, since
           v0.93.0). The compose.yml mock sets this for you.
         </p>

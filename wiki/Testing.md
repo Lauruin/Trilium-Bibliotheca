@@ -72,6 +72,8 @@ Steps (all must pass, then **zero console errors**):
 What it leaves in the mock: a **"Bibliotheca Demo"** room with a "Hello Note" and an **Inbox** note (both created if missing and kept); its temporary notes and the captured note are deleted. Before the app loads it also removes leftover `biblio_*` labels on the root (except `biblio_x`, `biblio_y`, `biblio_inbox`) from earlier aborted runs.
 It needs credentials in `.bootstrap.env`, and `APP_URL=http://dind:8081 node tools/browser-test.js` runs it against the hosted container instead of starting Vite.
 
+**Hosted mode** has its own end-to-end test: `npm run test:proxy` (`tools/proxy-test.mjs`, ~1 min, needs Docker and the mock; see [tools/README.md](../tools/README.md)). Its unit half (config parsing, read-only client, AI client against fake providers) is `tools/unit-host.mjs`, part of `node tools/unit-test.mjs`.
+
 **Which Chromium:** `CHROME_PATH` if set. Otherwise the project-local full Chromium in `.playwright-browsers/chromium-*/chrome-linux64/chrome` is tried first with SwiftShader software GL (so the tree steps run); if it does not launch, it falls back to the headless shell in `.playwright-browsers/chromium_headless_shell-*` (no WebGL, tree steps skipped), then to odd-arcade's `~/.cache/ms-playwright`.
 Extra shared libraries extracted from `.deb` files in `.playwright-libs/root` are added to `LD_LIBRARY_PATH` automatically. Both folders are gitignored and are downloaded on the **host** (the dev container's firewall blocks the Playwright CDN):
 

@@ -6,9 +6,14 @@
 #  (package-lock.json); stage 2 is a lean nginx serving it. The result is
 #  dependency-free static output, so the runtime image carries no Node.
 #
-#  The app talks to Trilium directly FROM THE BROWSER (no proxy here), so
-#  this container is stateless: no secrets, no env, no volumes. CORS must
-#  be granted by the Trilium instance for this app's origin — see README.
+#  Two ways to use it:
+#   - plain (no environment): the app talks to Trilium directly FROM THE BROWSER, so the
+#     container is stateless: no secrets, no volumes; CORS must be granted by the Trilium
+#     instance for this app's origin (see README).
+#   - hosted (TRILIUM_URL + TRILIUM_TOKEN, optional AI_*; see docker/30-biblio-config.sh):
+#     nginx proxies /etapi/ to your Trilium on the SAME origin and puts the token on the
+#     request itself, so the browser never holds it and no CORS is needed. Put your SSO
+#     (e.g. Pangolin) in front of this one container and nothing else needs to be public.
 # ============================================================
 
 # --- Stage 1: build --------------------------------------------------------
@@ -31,6 +36,10 @@ RUN npm run build
 # --- Stage 2: serve ----------------------------------------------------------
 FROM nginx:1.27-alpine
 COPY docker/nginx.conf /etc/nginx/nginx.conf
+# nginx's entrypoint runs every executable /docker-entrypoint.d/*.sh before starting nginx.
+COPY docker/30-biblio-config.sh /docker-entrypoint.d/30-biblio-config.sh
+# (chmod in a RUN step, not COPY --chmod: the dind daemon here builds with the legacy builder, which has no --chmod)
+RUN chmod 755 /docker-entrypoint.d/30-biblio-config.sh
 COPY --from=build /build/dist /usr/share/nginx/html
 
 EXPOSE 80

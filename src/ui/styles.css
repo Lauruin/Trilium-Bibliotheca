@@ -545,6 +545,10 @@ button.active {
 .tree-grip i { display: block; height: 100%; }
 .tree-controls { position: absolute; left: 0; right: 0; bottom: 0; padding: 4px 10px; font-size: 11px; color: #a89a7a; background: #14101c99; pointer-events: none; }
 
+/* Hosted server box (settings) */
+.host-box { display: flex; flex-direction: column; gap: 4px; margin: 8px 14px; padding: 8px 10px; border: 1px solid #5a7a3a; background: #1d2a1a; font-size: 12px; }
+.host-box button { align-self: flex-start; }
+
 /* Pointer hover (tree view) */
 .tree-hover { position: absolute; pointer-events: none; background: #14101ce8; border: 1px solid #8a6a48; padding: 3px 9px; font-size: 12px; color: #f0e2c0; z-index: 7; max-width: 360px; }
 

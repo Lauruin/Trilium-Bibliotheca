@@ -111,11 +111,12 @@ Use the right hop. A `200` from the wrong one may be someone else's service.
   `BIBLIOTHECA_TEST_PASSWORD`).
 - Seed content: `node tools/seed-vault.js [profile]` (the big one, see "Trilium mock" below), `node tools/seed-demo.js`
   (tiny), `node tools/seed-rich.js` (hand-made, varied; uses calendar/day-note endpoints the fake lacks). All idempotent.
-- Unit tests: `node tools/unit-test.mjs` (18 sections + the per-feature `tools/unit-*.mjs` files, ~10 s, no network; `unit-reader.mjs` covers media sniffing / planning, embedded pictures, note paths, the reader document and the leaf papers). Mock tooling tests: `npm run test:mock` (= `node tools/mock-test.mjs`,
+- Unit tests: `node tools/unit-test.mjs` (18 sections + the per-feature `tools/unit-*.mjs` files, ~10 s, no network; `unit-host.mjs` covers hosted-mode config + the AI client; `unit-reader.mjs` covers media sniffing / planning, embedded pictures, note paths, the reader document and the leaf papers). Mock tooling tests: `npm run test:mock` (= `node tools/mock-test.mjs`,
   non-destructive; real mock optional; 33 checks with `--no-real`, ~2 s; NOT part of `npm test`).
 - 3D screenshots: `node tools/tree-shots.js [scenario...]` (see "Yggdrasil tree view"). Every script: `tools/README.md`.
   Docker-free ETAPI: `npm run mock:fake -- --seed medium` (see "Trilium mock").
 - ETAPI integration assertions: `tools/etapi-probe.sh` (needs `.bootstrap.env`)
+- Hosted-mode test: `npm run test:proxy` (`tools/proxy-test.mjs [--no-build] [--browser]`; builds the image, needs docker + the mock; see "Hosted mode + AI proxy").
 - Browser pass: `node tools/browser-test.js` (seeds its own vault; needs
   `.bootstrap.env`; it WRITES into the mock: a "Bibliotheca Demo" room + the Inbox stay behind). Chromium lookup order:
   `CHROME_PATH` if set; else the FULL chrome `.playwright-browsers/chromium-*/chrome-linux64/chrome` with SwiftShader GL
@@ -214,6 +215,15 @@ mock get them.
 - 4173 — vite preview (build check)
 - 8081 — **hosted app container** (`bibliotheca-web`, compose.yml, nginx)
 - 8080 — Trilium mock (compose.yml), published through DinD
+
+## Hosted mode + AI proxy (nginx, `docker/`)
+
+The container is the plain static app unless configured. `docker/30-biblio-config.sh` runs from nginx's official `/docker-entrypoint.d/` (as root, before nginx starts), validates the environment against strict character sets (a bad value stops the container with a message: config injection is the risk, the values land in nginx config) and renders into the `/tmp` tmpfs (rootfs is read-only): `/tmp/conf/http-biblio.conf` (resolver, AI rate-limit zone), `/tmp/conf/server-biblio.conf` (mode 600, holds the SECRETS) and `/tmp/config.json` (what the browser may know; never a secret). `docker/nginx.conf` includes `/tmp/conf/http-*.conf` / `server-*.conf` and serves `location = /config.json`.
+- Variables (compose maps `BIBLIO_*` from `.env` to these): `TRILIUM_URL`, `TRILIUM_TOKEN`, `TRILIUM_READONLY`, `TRILIUM_ROOT_NOTE_ID`, `TRILIUM_NAME`, `TRILIUM_PUBLIC_URL`; `AI_PROVIDER` (`anthropic` | `openai-compatible`), `AI_BASE_URL`, `AI_KEY`, `AI_MODEL` (anthropic default `claude-haiku-5-5`).
+- `/etapi/` is proxied with `Authorization` replaced by the token (and `Cookie` cleared), `/etapi/auth/*` is 403 (nobody behind the SSO can mint / kill tokens), read-only = `limit_except GET HEAD OPTIONS`. `/ai/v1/messages` (anthropic: `x-api-key` + `anthropic-version`) or `/ai/chat/completions` (Bearer, optional): POST only, 30 r/min per IP (burst 8), 1 MB bodies, nothing else under `/ai/`.
+- App side: `lib/serverconfig.ts` (`fetchServerConfig`, `parseServerConfig`, `chooseSettings`: the user's own stored server always wins over the host's; a stored `proxy: true` marker follows the host), `Settings.proxy`, `store.getClient` (`baseUrl: ""`, no token, `readOnly` from the host), `TriliumClient` `readOnly` (every write throws `TriliumApiError(403, "READ_ONLY")` before any request), `ui/SettingsModal.tsx` host box. `lib/ai/` = the provider-neutral AI client (`createAiClient(cfg).ask({system, user, schema, validate})` -> `{ok, data}` | `{ok: false, reason: refused|invalid|http|network|aborted|timeout}`; Anthropic adapter = `@anthropic-ai/sdk` lazy-loaded with `baseURL: <origin>/ai`, placeholder key, `output_config.format` json_schema, `effort: "low"` only on 5.x models, no temperature/top_p/tools, `stop_reason: "refusal"` surfaced; the other = plain fetch with `response_format: json_object`), `lib/ai/prompt.ts` (`wrapUntrusted`: note text is DATA: control chars stripped, `<note>` delimiters defanged, capped at 6000 chars; `parseJsonLoose`). Labels `biblio_learn` (inheritable opt-in for any learning mode) and `biblio_noai` (never send) are defined in `config.LABELS` and only READ.
+- Gotchas (symptom -> cause): `docker build` here uses the legacy builder, so `COPY --chmod` fails (use `RUN chmod`); busybox `grep -E` rejects `{8,512}` (max 255); the entrypoint's complaint is on stderr and exit code 1: `docker logs` shows it; `localhost` in these containers is ::1 first (healthcheck uses 127.0.0.1); `public/config.json` (`{"server":null,"ai":null}`) is the dev / plain default, because without it the vite dev server answers a JSON request for `/config.json` with a 404 that the browser test counts as a console error; in the container nginx's `location = /config.json` serves the rendered file instead (the app also requires a JSON content type, so an index.html answer = no host config).
+- Tests: `tools/unit-host.mjs` (parse/choose/fetch, read-only client, AI client vs fake providers) and `npm run test:proxy` (`tools/proxy-test.mjs`, builds the image, 23 checks vs the mock; `--browser`, `--no-build`).
 
 ## Verified ETAPI contract (v0.106.0, live instance)
 

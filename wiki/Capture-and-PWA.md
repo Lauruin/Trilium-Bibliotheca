@@ -37,14 +37,15 @@ On coarse-pointer devices (or with `?touch=1` on a desktop) on-screen buttons ap
 
 ## Away from home: HTTPS with Pangolin
 
-From the README. Install and share target need HTTPS; with a reverse-proxy tunnel such as **Pangolin** that works provided:
+Install and share target need HTTPS. With **hosted mode** (see [Getting Started](Getting-Started.md#hosted-container-optional)) it is one resource:
 
-1. **Two public HTTPS resources:** the app (container port 8081) and your Trilium (usually 8080). Mixed content is blocked: an `https://` page cannot talk to an `http://` Trilium.
-2. **Trilium CORS** allows the app's **exact** origin: `TRILIUM_NETWORK_CORS_ALLOW_ORIGIN=https://app.example.com` (not `*`), plus the methods and headers from [Getting Started](Getting-Started.md).
-3. **No auth redirect on the Trilium resource.** The browser calls ETAPI cross-origin, so a Pangolin SSO login redirect in front of *Trilium* breaks it. Leave Pangolin auth off for that resource (ETAPI is protected by its token; use a strong Trilium password) or add a rule letting `/etapi/*` through. SSO in front of the *app* resource is fine.
-4. In the app's settings, enter the public Trilium URL (`https://trilium.example.com`).
+1. Publish **only the app** (container port 8081) as an HTTPS resource with Pangolin SSO in front. Trilium needs no public address and no CORS: the app's nginx reaches it internally and adds the ETAPI token, so the browser only talks to the app's origin and the SSO cookie covers `/etapi/` too.
+2. Anyone past the SSO can read, and unless `BIBLIO_TRILIUM_READONLY=1` write labels and capture notes into, that Trilium through the app. Fine solo; use read-only for anything shared.
+3. `BIBLIO_TRILIUM_PUBLIC_URL` (optional) makes "open in Trilium" links work; otherwise the real address stays hidden.
 
-Check your Pangolin version's documentation for the exact resource and rule options; these notes were not tested against a live Pangolin. A **single-origin** setup (the app's nginx proxying `/etapi/` to Trilium, so no CORS) is possible but **not built**.
+Without hosted mode (two public resources, cross-origin): both need HTTPS (mixed content is blocked), Trilium's CORS must allow the app's exact origin (`TRILIUM_NETWORK_CORS_ALLOW_ORIGIN=https://app.example.com`, not `*`, plus the methods/headers from Getting Started), and an SSO redirect in front of the *Trilium* resource breaks the browser's cross-origin ETAPI calls (leave auth off there or let `/etapi/*` through).
+
+Check your Pangolin version's documentation for the exact resource and rule options. The proxy itself is tested end to end (`npm run test:proxy`, including a real browser) but **not against a live Pangolin**.
 
 ## Away from home: Tailscale
 

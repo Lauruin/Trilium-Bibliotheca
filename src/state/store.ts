@@ -14,10 +14,13 @@
 import { useSyncExternalStore } from "react";
 import { DEFAULT_ROOT_NOTE_ID } from "../config";
 import { TriliumClient } from "../lib/trilium/client";
+import { NO_HOST_CONFIG, type ServerConfig } from "../lib/serverconfig";
 import type { ConnState, LibraryTree, RoomPlacement, Settings } from "../types";
 
 export interface AppState {
   settings: Settings | null;
+  /** What the host of this app configured (hosted mode: a Trilium server behind the proxy, an AI provider); no host config = all null. */
+  host: ServerConfig;
   conn: ConnState;
   tree: LibraryTree | null;
   placements: Map<string, RoomPlacement> | null;
@@ -33,6 +36,7 @@ export interface AppState {
 
 const initialState: AppState = {
   settings: null,
+  host: NO_HOST_CONFIG,
   conn: "disconnected",
   tree: null,
   placements: null,
@@ -80,9 +84,12 @@ let client: TriliumClient | null = null;
 export function getClient(): TriliumClient | null {
   if (!state.settings) return null;
   if (!client) {
+    const s = state.settings;
+    // hosted mode: our own origin, no token (nginx injects it), read-only when the host says so
     client = new TriliumClient({
-      baseUrl: state.settings.serverUrl,
-      token: state.settings.token,
+      baseUrl: s.proxy ? "" : s.serverUrl,
+      token: s.proxy ? undefined : s.token,
+      readOnly: !!s.proxy && state.host.server?.readOnly === true,
     });
   }
   return client;

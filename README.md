@@ -85,6 +85,8 @@ The `biblio_*` labels it writes: `biblio_x`, `biblio_y` (room position), `biblio
 
 **What it never does (in this version):** rename, move or delete notes, change any note's title or content, touch labels or relations that are not `biblio_*`, or send your data anywhere but to the Trilium URL you entered (a note whose HTML embeds a remote image makes your browser fetch that image, as any web page would; external links ask before opening). (The planned editor will change the first part of that, and is planned to ask for confirmation before saving.)
 
+**In hosted mode** the same requests go to the app's own `/etapi/` and nginx adds the token; with `BIBLIO_TRILIUM_READONLY=1` the app does not even try to write.
+
 **What it keeps in your browser (localStorage):** the server URL, **the ETAPI token in plain text**, the structure snapshot above, the leaf-size cache (numbers), and your reader and view preferences (including where you stopped reading each of your 200 most recent notes). The undo history lives in memory only and is gone when you reload.
 
 **What you will see inside Trilium:** the `biblio_*` labels show up as ordinary labels in a note's attributes and sync like any attribute; an **Inbox** note and the notes you captured. To remove the app's traces, delete the Inbox (and captured notes, if you want them gone) and remove the `biblio_*` labels, for example by searching `#biblio_x` and so on and using Trilium's bulk actions to delete the label.
@@ -120,27 +122,39 @@ The project is developed in a devcontainer with a Docker-in-Docker sidecar; the 
 
 ### Hosting the app itself
 
-The app is plain static files once built, so it ships as a stateless container (no token inside, no volumes):
+The app is plain static files once built, so it ships as a small nginx container (read-only rootfs, healthchecked). Two ways to use it:
 
 ```bash
 docker compose up -d --build bibliotheca   # serves on http://<host>:8081
 APP_URL=http://dind:8081 node tools/browser-test.js   # verify it hosted
 ```
 
-The multi-stage build runs the strict type-check and the vite build inside the image (a broken build fails the image build), then nginx serves the bundle with immutable asset caching. The container runs with a read-only rootfs;
-when pointing it at a real Trilium, add this app's origin (e.g. `http://<host>:8081`) to that instance's `corsAllowOrigin`.
+**Plain (no configuration):** stateless, no secrets. Each visitor enters a Trilium URL + token in Settings and the *browser* talks to that Trilium directly, so that Trilium must allow this app's origin (CORS, see Quick start).
+
+**Hosted mode (single origin, recommended for your own server):** put these in a `.env` file next to `compose.yml` and nginx serves your Trilium on the app's own origin:
+
+```bash
+BIBLIO_TRILIUM_URL=http://trilium:8080     # where the container reaches your Trilium (compose service name works)
+BIBLIO_TRILIUM_TOKEN=<an ETAPI token>      # stays in the container; the browser never sees it
+BIBLIO_TRILIUM_READONLY=1                  # optional: only GET/HEAD/OPTIONS pass; the app turns its writes off
+# optional: BIBLIO_TRILIUM_ROOT_NOTE_ID, BIBLIO_TRILIUM_NAME, BIBLIO_TRILIUM_PUBLIC_URL (see .env.example)
+```
+
+nginx proxies `/etapi/` to that Trilium and **adds the token itself** (anything the browser sends is replaced; `/etapi/auth/*` is refused so nobody can mint or kill tokens through it). `/config.json` tells the app which server and (optionally) which AI the host configured; it never contains a secret. The user's own server option stays: a connection entered in Settings always wins over the host's. Details and every variable: [`docker/30-biblio-config.sh`](docker/30-biblio-config.sh), [`.env.example`](.env.example).
+
+**Optional AI (off unless you set it, nothing uses it yet).** `BIBLIO_AI_PROVIDER=anthropic` (default model `claude-haiku-5-5`) or `openai-compatible` (OpenRouter, a local Ollama / llama.cpp server), with `BIBLIO_AI_KEY` / `BIBLIO_AI_BASE_URL` / `BIBLIO_AI_MODEL`. nginx forwards only `POST /ai/v1/messages` (Anthropic) or `POST /ai/chat/completions`, rate limited, with the key added server-side. The client side (`src/lib/ai/`) exists and is tested against fake providers; the learning modes that will use it are planned (they will only ever send notes that carry the inheritable label `biblio_learn`, never ones with `biblio_noai`, and note text is always treated as untrusted data). Be aware that with a cloud provider the text of such notes leaves your machine; a local model keeps it home.
+
+The multi-stage build runs the strict type-check and the vite build inside the image (a broken build fails the image build), then nginx serves the bundle with immutable asset caching.
 
 ## Using it away from home (HTTPS / Pangolin)
 
-The installable-app features (install, share target) need HTTPS. With a reverse-proxy tunnel such as **Pangolin** this works, provided:
+The installable-app features (install, share target) need HTTPS. With **hosted mode** above the setup is one resource:
 
-1. **Two public HTTPS resources**: the app (container port `8081`) and your Trilium (its port, usually `8080`). Mixed content is blocked, so the app cannot talk to an `http://` Trilium from an `https://` page.
-2. **Trilium CORS**: allow the app's exact origin - `TRILIUM_NETWORK_CORS_ALLOW_ORIGIN=https://app.example.com` (not `*`), plus the methods/headers shown under Quick start.
-3. **Auth on the Trilium resource**: the app calls Trilium's ETAPI from the browser (cross-origin `fetch`), so a Pangolin SSO login redirect in front of the *Trilium* resource breaks it. Leave Pangolin auth off for that resource (ETAPI is protected by its token; use a strong Trilium password) or add a Pangolin rule that lets `/etapi/*` through.
-   Pangolin SSO in front of the *app* resource is fine - the manifest link already sends cookies.
-4. In the app's settings, enter the public Trilium URL (`https://trilium.example.com`).
+1. Publish **only the app** (container port `8081`) as an HTTPS resource, with Pangolin SSO in front of it. Trilium needs **no public address and no CORS**: the app's nginx reaches it over the internal network and adds the token. The browser only ever talks to the app's origin, so the SSO login cookie covers everything, including `/etapi/`.
+2. Everyone who gets past the SSO can read (and, unless `BIBLIO_TRILIUM_READONLY=1`, write labels and quick-capture notes into) that Trilium through the app. That is fine for a solo setup; use read-only for anything shared.
+3. Optional `BIBLIO_TRILIUM_PUBLIC_URL` makes "open in Trilium" links work (the real address is otherwise hidden).
 
-Check your Pangolin version's docs for the exact resource/rule options. A single-origin setup (the app's nginx proxying `/etapi/` to Trilium, no CORS) is possible but not built. Tailscale notes: [wiki/Capture-and-PWA.md](wiki/Capture-and-PWA.md).
+Without hosted mode (two public resources, the browser talking to Trilium cross-origin): the app and Trilium both need HTTPS (mixed content is blocked), Trilium needs `TRILIUM_NETWORK_CORS_ALLOW_ORIGIN=https://app.example.com` (not `*`) plus the methods/headers shown under Quick start, and an SSO redirect in front of the *Trilium* resource breaks the browser's cross-origin ETAPI calls (leave auth off there, ETAPI is token-protected, or let `/etapi/*` through). Check your Pangolin version's docs for the exact resource/rule options; I could only test the proxy against a local stand-in for the SSO. Tailscale notes: [wiki/Capture-and-PWA.md](wiki/Capture-and-PWA.md).
 
 ## Keys at a glance
 
@@ -197,7 +211,7 @@ What the app remembers about the vault (room positions, looks, the inbox marker)
 
 ## Security notes
 
-- The ETAPI token is stored in this browser's localStorage - a deliberate v1 trade-off since the app has no backend of its own. Anyone with access to that browser profile can read the token. A widget wrapper inside Trilium (planned, later) would remove the token from the picture entirely.
+- In plain mode the ETAPI token is stored in this browser's localStorage - a deliberate trade-off since the app has no backend of its own. Anyone with access to that browser profile can read the token. In **hosted mode** the token lives only in the container's environment and nginx config (a mode-600 file in a tmpfs): the browser holds none. Do not put a token in a `VITE_*` variable for a hosted build: those are baked into the JavaScript every visitor downloads.
 - Note content is rendered in an iframe with `sandbox="allow-scripts"` (no `allow-same-origin`: opaque origin, no access to the app) and a Content-Security-Policy that lets only one nonce'd script run - ours, which just reports link clicks. Scripts, inline handlers and `javascript:` links inside a note are blocked, so note HTML cannot execute anything.
 - The app writes two kinds of data: `biblio_*` labels (room layout, build-mode looks and tree branch properties - the build code refuses to write any other label name), and new notes created by quick capture (plus the `biblio_inbox` label on the Inbox); logging in with a password also makes Trilium mint an ETAPI token. Existing note content, titles and structure are never modified. The full list is under [Before you connect](#before-you-connect-what-the-app-reads-and-writes); this is **alpha software** with no guarantee about the safety of the connected database, so back it up first.
 - The compose.yml mock sets `corsAllowOrigin=*` and a known password - **for the throwaway test instance only**. Never do this on a real vault, and never point the tools in `tools/` at one.

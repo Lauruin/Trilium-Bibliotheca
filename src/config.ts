@@ -49,6 +49,10 @@ export const LABELS = {
   span: "biblio_span",
   /** Optional leaf style override on a note (tree view): broad|needle|maple|blossom|fruit. */
   leaf: "biblio_leaf",
+  /** Learning modes (quizzes, the mite, the gardener) may only use notes that carry this label, own or INHERITED (put it on a folder to opt a whole branch in). Absent = never a target. */
+  learn: "biblio_learn",
+  /** Never send this note (or, inherited, a whole folder) to an AI provider, even when it also carries `biblio_learn`. */
+  noai: "biblio_noai",
   // --- tree view: per-folder branch properties (src/tree/layout.ts, PROP_LABELS). Own labels of the FOLDER note,
   // numbers as strings; absent / invalid = the calculated value. Out-of-range numbers are clamped, garbage is ignored.
   /** Tree species of a folder (oak, birch, maple, pine, ...; tree/species.ts), case-insensitive. Inherits DOWN to sub-folders (they may override). */

@@ -36,6 +36,8 @@ flowchart TB
   STORE --> PH
 ```
 
+**Hosted mode:** when the container is configured (`docker/30-biblio-config.sh`), the app fetches `/config.json` at boot (`lib/serverconfig.ts`), talks to its OWN origin (`/etapi/`, nginx adds the token; the client runs with `baseUrl: ""`) and may use `/ai/` through `lib/ai/` (provider-neutral: the Anthropic SDK or an OpenAI-compatible fetch; the key is never in the browser). Without configuration nothing changes: the browser talks to the user's Trilium directly.
+
 Read the arrows as "knows about". The rules that hold the picture together:
 
 1. **`src/lib/trilium/`** is the only place that speaks HTTP: `client.ts` (one `TriliumClient`, a

@@ -124,6 +124,11 @@ export interface Settings {
   token: string;
   /** Note id the library hangs from; "root" = Trilium's root note. */
   rootNoteId: string;
+  /**
+   * Hosted mode: the app's own origin proxies /etapi/ to the host's Trilium and injects the token server-side, so `serverUrl` is ""
+   * and there is no token (see lib/serverconfig.ts). Never stored: derived from /config.json at every boot.
+   */
+  proxy?: boolean;
 }
 
 /** Connection status surfaced to the HUD. */
