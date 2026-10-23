@@ -28,6 +28,7 @@ The code lives in `src/tree/` (pure layout and simulation, unit-tested) plus `sr
 | `N` | Branch names: signs, bubbles, off (remembered) |
 | `F` | Canopy foliage on/off (remembered; also a checkbox + density slider at the bottom of the `B` panel) |
 | `K` | Sun shadows: off, low (1024), medium (2048, default), high (4096 map); remembered, also the "shadows" button (see [Light, shadows and scenery](#light-shadows-and-scenery)) |
+| `I` | Performance panel: FPS, JS time vs frame time, draw calls, triangles, resolution, profile (quality / auto / fast), quick switches (see [Performance](#performance)) |
 | `P` | Pixel mode: renders at 0.4 pixel ratio with `image-rendering: pixelated` for a chunky look |
 | Mouse wheel, `+` / `-` | Zoom (factor 0.2 to 8; default 1.5) |
 | `T` | Back to the library |
@@ -165,6 +166,24 @@ Both share the sky, fog, rocks, bushes and pines, the [sun shadows](#light-shado
   Quality: **off** (no shadow pass; a soft blob under the animal shows where you are above the ground), **low** (1024), **medium** (2048, default), **high** (4096). Remembered in `biblio.v1.treeShadows`. The shadow edge is snapped to whole texels (it does not crawl when you move) and fades out at the edge of the map instead of ending in a line.
   Cost for an 88-branch forest: about 110 extra draw calls and 100k extra triangles in the low-poly look; in the voxel look the cubes only receive and a thin invisible tube per branch casts (1.1 to 1.6 million triangles per frame instead of 2.7), so on a weak GPU switch shadows off with `K`.
 - **Scenery (low-poly):** the ground is flat where trees and roots touch it (so ground roots are never buried) and rolls into hills farther out; patches of lush, olive, deep and dry grass, litter under the trees, a dirt patch round the stump, tufts, flowers in patches, red mushrooms at the trunk bases, rocks and pebbles, bushes, far pines and round trees, a small pond beyond the forest, hills, snow-capped mountains and drifting clouds. Everything is deterministic (the same forest always looks the same) and instanced (about 65 thousand triangles in 17 draw calls for the whole environment of an 85-branch forest).
+
+## Performance
+
+The tree view is **GPU-bound** (pixel fill and overdraw at a high pixel ratio with MSAA, about a million triangles in the voxel look, the blended foliage, a shadow map redrawn every frame), not JavaScript-bound: the JS part of a frame is a few milliseconds. So the controls are about pixels, not code (`src/tree/perf.ts`, pure and unit-tested in `tools/unit-perf.mjs`).
+
+**Reading the panel (`I`):** *fps* and *frame ms* are the time between rendered frames; *JS ms* is how long our own code (simulation, camera, foliage, shadows and the draw-call submit) took inside a frame; if the frame is long but JS is short, the GPU is the bottleneck (the panel says so). Draw calls and triangles include the shadow pass. *Ratio* is the drawing-buffer pixel ratio actually used (the screen's ratio capped by the profile, times the adaptive scale).
+
+| Profile | Pixel ratio | MSAA | Frame cap | Adaptive resolution |
+|---|---|---|---|---|
+| `quality` | up to 2 | always | none | off (the old behaviour) |
+| `auto` (default) | up to 1.5 | only when the ratio is at most 1.25 | 60 fps | steps down to 0.6x while frames are slow |
+| `fast` | 1 | never | 60 fps | down to 0.5x |
+
+- **Adaptive resolution** (`AdaptiveScale`): average frame time above 21 ms for 0.7 s steps the scale down (1, 0.85, 0.72, 0.6, 0.5); a clean stretch (17.6 ms or better) for 5 s steps it back up; at most one change per 1.2 s; every upward step that has to be taken back doubles the wait before the next try (up to 80 s), so it settles instead of oscillating. At the lowest step and still slow, the panel suggests shadows off (`K`), foliage off (`F`) or the low-poly look (`L`).
+- **Frame cap** (`FrameLimiter`): schedules the next frame one interval after the previous *due* time, so a 144 Hz screen under a 60 fps cap really renders 60 fps (a naive "skip if too soon" rule gives 48).
+- **MSAA** cannot be switched on a live WebGL context: a profile change applies it the next time the tree view opens (everything else applies at once). The renderer is created with `powerPreference: "high-performance"` (laptops with two GPUs use the fast one), no stencil buffer, and `renderer.info.autoReset = false` so the panel counts the shadow pass too.
+- **Cheaper bookkeeping:** the nearest leaf is a flat loop over positions computed once per world (`tree/leafindex.ts`), the HUD's "next to a leaf" / "Shift climbs into" hints refresh ten times a second, the foliage fade updates at 30 Hz (it eases over 0.2 s anyway), spider silk geometry is rebuilt only when `silkVersion()` changes (it used to build a signature string of every branch every frame), and rebuilds of the meshes while you drag a slider in the branch panel are coalesced (at most one per 150 ms; the simulation already runs on the newest world).
+- Remembered in `biblio.v1.treePerf`. The numbers are also available as `window.__treeScene.stats` (what the browser test reads). In a headless container with software GL the frame rate is about 2 fps: that says nothing about a real GPU.
 
 ## Grip and gravity (what makes you fall)
 

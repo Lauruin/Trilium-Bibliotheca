@@ -545,6 +545,18 @@ button.active {
 .tree-grip i { display: block; height: 100%; }
 .tree-controls { position: absolute; left: 0; right: 0; bottom: 0; padding: 4px 10px; font-size: 11px; color: #a89a7a; background: #14101c99; pointer-events: none; }
 
+/* Performance panel (tree view, key I) */
+.perf-overlay { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: 430px; background: #14101ce8; border: 1px solid #8a6a48; padding: 6px 10px; font: 12px ui-monospace, monospace; color: #e8dcc0; z-index: 8; display: flex; flex-direction: column; gap: 3px; }
+.perf-head { display: flex; justify-content: space-between; align-items: center; }
+.perf-head button, .perf-row button { background: #14101cc0; color: #e8dcc0; border: 1px solid #8a6a48; padding: 1px 8px; font: inherit; font-size: 12px; cursor: pointer; }
+.perf-row button.active { background: #5a3e24; border-color: #d8b868; }
+.perf-row { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-top: 2px; }
+.perf-fps b { font-size: 16px; }
+.perf-diag { color: #a89a7a; }
+.perf-diag.gpu-bound, .perf-diag.cpu-bound { color: #ffb060; }
+.perf-diag.ok { color: #9ad08a; }
+.perf-warn { color: #ff9a70; }
+
 /* Branch properties (tree view, key B) */
 .branch-panel { position: absolute; right: 10px; top: 120px; width: 480px; max-height: calc(100% - 200px); overflow: auto; background: #2a1c12f2; border: 1px solid #d8a040; padding: 8px 10px; font: 12px ui-monospace, monospace; color: #e8dcc0; z-index: 9; }
 .bp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }

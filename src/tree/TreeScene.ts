@@ -17,8 +17,13 @@ import {
   type Animal, type Creature, type Input, type MoveMode,
 } from "./sim3";
 import { BranchLabels, LABEL_MODES, type LabelMode } from "./labels";
-import { applySilks } from "./silk";
+import { applySilks, silkVersion } from "./silk";
 import { leafScale } from "./leafkind";
+import { buildLeafIndex, nearestLeafTo, type LeafIndex } from "./leafindex";
+import {
+  AdaptiveScale, DEFAULT_PERF_PROFILE, diagnose, effectivePixelRatio, FrameClock, nextPerfProfile, PERF_KEY, PERF_PROFILES, PROFILE,
+  FrameLimiter, useMsaa, type FrameSummary, type PerfProfile,
+} from "./perf";
 import type { Leaf } from "./layout";
 import { surfacePoint, type World } from "./world3";
 import { clampDensity, FoliageLayer } from "./foliage";
@@ -32,6 +37,7 @@ import {
 export type { Leaf } from "./layout";
 export { ANIMALS, ANIMAL_CATEGORIES };
 export type { LabelMode };
+export type { PerfProfile };
 export { VOX, branchVoxels, LOOKS, type Look } from "./look";
 
 export type CamMode = "chase" | "level" | "fixed";
@@ -77,6 +83,30 @@ export interface HudInfo {
   nearLeaf: Leaf | null;
   /** The side branch Shift would climb into right now. */
   climb: string | null;
+  /** Performance profile (quality | auto | fast) and, while the overlay (key I) is on, the live numbers. */
+  perfProfile: PerfProfile;
+  perf: PerfStats | null;
+}
+
+/** What the stats overlay shows (see tree/perf.ts for how to read it). */
+export interface PerfStats extends FrameSummary {
+  /** Draw calls and triangles of the last frame (incl. the shadow pass), and what is alive on the GPU. */
+  calls: number;
+  triangles: number;
+  geometries: number;
+  textures: number;
+  /** Pixel ratio actually used, the adaptive scale, and the drawing buffer size in pixels. */
+  dpr: number;
+  scale: number;
+  width: number;
+  height: number;
+  profile: PerfProfile;
+  maxFps: number;
+  /** MSAA was requested when the renderer was created (a profile change applies it the next time the tree view opens). */
+  msaa: boolean;
+  /** The adaptive resolution is at its lowest allowed step and the frames are still slow. */
+  atFloor: boolean;
+  diagnosis: ReturnType<typeof diagnose>;
 }
 
 const load = <T extends string>(key: string, allowed: readonly T[], d: T): T => {
@@ -116,6 +146,10 @@ export class TreeScene {
   titles: ReadonlyMap<string, string> = new Map();
   zoomMul = 1.5;
   pixelated = false;
+  /** Performance profile (key via the overlay): pixel-ratio cap, fps cap, adaptive resolution; remembered. */
+  perfProfile: PerfProfile;
+  /** Stats overlay (key I): fills `HudInfo.perf` while on. */
+  perfOverlay = false;
   onHud: ((h: HudInfo) => void) | null = null;
   /** E pressed near a leaf. */
   onInteract: ((leaf: Leaf) => void) | null = null;
@@ -131,7 +165,6 @@ export class TreeScene {
   private reticle: THREE.Sprite;
   /** Spider silk: the frozen threads (branches flagged silk) + the rope you are dangling on. */
   private silkLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xf2f2ff, transparent: true, opacity: 0.85 }));
-  private silkSig = "";
   private silkQueued = false;
   /** The animal's meshes and their per-frame pose (src/tree/creatures.ts). */
   private rig = new CreatureRig();
@@ -152,6 +185,7 @@ export class TreeScene {
   /** Guided movement: the heading the chase / level camera follows (eased, see `travel`). */
   private camFwd = new THREE.Vector3(1, 0, 0);
   private wisp: THREE.Sprite;
+  private wispTarget = new THREE.Vector3();
   private sky: ReturnType<typeof buildSky>;
   private sunLight: THREE.DirectionalLight;
   /** Sun shadow map that follows the animal + the blob fallback under it (src/tree/shadows.ts). */
@@ -160,6 +194,28 @@ export class TreeScene {
   private foliageDepth = foliageDepthMaterial();
   private leafTimer = 0;
   private ground = 0;
+  private msaa: boolean;
+  private clock = new FrameClock();
+  private adaptive: AdaptiveScale;
+  private resScale = 1;
+  private lastRender = 0;
+  private limiter = new FrameLimiter(0);
+  private adaptAt = 0;
+  private lastInfo = { calls: 0, triangles: 0 };
+  /** Leaf positions, computed once per world (nearest-leaf queries are a flat loop). */
+  private leafIdx: LeafIndex | null = null;
+  /** The HUD's "next to a leaf" / "Shift would climb into" are recomputed at ~10 Hz, not every frame. */
+  private hudAt = 0;
+  private hudNear: Leaf | null = null;
+  private hudClimb: string | null = null;
+  private foliageAcc = 0;
+  private silkVer = -1;
+  private ropeShown = false;
+  private lenId = "";
+  private lenVal = 0;
+  /** Rebuilds of the world's meshes are coalesced (a slider drag replaces the world many times a second). */
+  private lastBuild = 0;
+  private buildTimer = 0;
   /** The cloud group of the environment: kept centred on the camera and turned slowly. */
   private clouds: THREE.Object3D | null = null;
   private envKey = "";
@@ -175,8 +231,15 @@ export class TreeScene {
     this.labelMode = load(LABEL_KEY, LABEL_MODES, "signs");
     this.foliageOn = load(FOLIAGE_KEY, ["on", "off"] as const, "on") === "on";
     this.foliageDensity = clampDensity(Number(load(FOLIAGE_DENSITY_KEY, ["0.25", "0.5", "0.75", "1", "1.25", "1.5"] as const, "1")));
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+    this.perfProfile = load(PERF_KEY, PERF_PROFILES, DEFAULT_PERF_PROFILE);
+    this.msaa = useMsaa(this.perfProfile, window.devicePixelRatio);
+    // powerPreference: on laptops with two GPUs this asks for the fast one; MSAA only where it is cheap (see perf.ts); the
+    // counters are reset by hand once per frame so the shadow pass is counted too
+    this.renderer = new THREE.WebGLRenderer({ antialias: this.msaa, powerPreference: "high-performance", stencil: false });
+    this.renderer.info.autoReset = false;
+    this.adaptive = new AdaptiveScale(PROFILE[this.perfProfile].minScale);
+    this.limiter.setMaxFps(PROFILE[this.perfProfile].maxFps);
+    this.applyPixelRatio();
     container.appendChild(this.renderer.domElement);
     if (getComputedStyle(container).position === "static") container.style.position = "relative";
     container.appendChild(this.vignette);
@@ -340,9 +403,61 @@ export class TreeScene {
 
   setPixelated(on: boolean): void {
     this.pixelated = on;
-    this.renderer.setPixelRatio(on ? 0.4 : Math.min(2, window.devicePixelRatio));
+    this.applyPixelRatio();
     this.renderer.domElement.style.imageRendering = on ? "pixelated" : "auto";
     this.resize();
+  }
+
+  /** The drawing-buffer ratio: the profile's cap x the adaptive scale (pixel mode overrides it). */
+  private applyPixelRatio(): void {
+    this.renderer.setPixelRatio(this.pixelated ? 0.4 : effectivePixelRatio(this.perfProfile, window.devicePixelRatio, this.resScale));
+  }
+
+  /** quality | auto | fast (remembered). The pixel-ratio cap and the fps cap apply at once; MSAA the next time the tree view opens. */
+  setPerfProfile(p: PerfProfile): void {
+    if (p === this.perfProfile) return;
+    this.perfProfile = p;
+    save(PERF_KEY, p);
+    this.adaptive.setMinScale(PROFILE[p].minScale);
+    this.limiter.setMaxFps(PROFILE[p].maxFps);
+    if (!PROFILE[p].adaptive) this.adaptive.reset();
+    this.resScale = PROFILE[p].adaptive ? this.adaptive.scale : 1;
+    this.applyPixelRatio();
+    this.clock.reset();
+  }
+
+  cyclePerfProfile(): void {
+    this.setPerfProfile(nextPerfProfile(this.perfProfile));
+  }
+
+  togglePerfOverlay(): void {
+    this.perfOverlay = !this.perfOverlay;
+    if (!this.perfOverlay) return;
+    this.clock.reset();
+  }
+
+  /** The numbers behind the overlay (also reachable as `window.__treeScene.stats`). */
+  get stats(): PerfStats {
+    const s = this.clock.summary();
+    const size = this.renderer.getSize(new THREE.Vector2());
+    const dpr = this.renderer.getPixelRatio();
+    const maxFps = PROFILE[this.perfProfile].maxFps;
+    return {
+      ...s,
+      calls: this.lastInfo.calls,
+      triangles: this.lastInfo.triangles,
+      geometries: this.renderer.info.memory.geometries,
+      textures: this.renderer.info.memory.textures,
+      dpr,
+      scale: this.resScale,
+      width: Math.round(size.x * dpr),
+      height: Math.round(size.y * dpr),
+      profile: this.perfProfile,
+      maxFps,
+      msaa: this.msaa,
+      atFloor: PROFILE[this.perfProfile].adaptive && this.adaptive.atFloor && this.resScale < 1 && s.avgFrameMs > 21,
+      diagnosis: diagnose(s, maxFps),
+    };
   }
 
   setLook(look: Look): void {
@@ -374,6 +489,7 @@ export class TreeScene {
   setWorld(world: World, leaves: Leaf[], startBranch: string, startS: number, titles?: ReadonlyMap<string, string>): void {
     this.world = world;
     this.leaves = leaves;
+    this.leafIdx = buildLeafIndex(world, leaves, VOX * 3);
     if (titles) this.titles = titles;
     applySilks(world); // threads the spiders spun earlier this session survive a rebuilt world
     const { gripOn, autoAlign } = this.creature;
@@ -396,9 +512,29 @@ export class TreeScene {
     // same animal, same state (airborne, flying, dangling… all keep going); only the world under it changes
     this.world = world;
     this.leaves = leaves;
+    this.leafIdx = buildLeafIndex(world, leaves, VOX * 3);
     if (titles) this.titles = titles;
     c.head.s = Math.min(c.head.s, Math.max(0, b.total - 4));
-    this.buildWorld();
+    this.queueBuild();
+  }
+
+  /**
+   * Rebuild the meshes now if nothing was built for 150 ms, else once 150 ms after the last build: a slider drag in the
+   * branch panel replaces the world many times a second, and each rebuild (bark, leaves, foliage, labels) costs ~150 ms.
+   * The simulation already runs on the newest world; only the pictures lag by at most one interval.
+   */
+  private queueBuild(): void {
+    if (this.disposed) return;
+    const since = performance.now() - this.lastBuild;
+    if (this.buildTimer) return; // a trailing build is queued and will see the newest world
+    if (since >= 150) {
+      this.buildWorld();
+      return;
+    }
+    this.buildTimer = window.setTimeout(() => {
+      this.buildTimer = 0;
+      if (!this.disposed) this.buildWorld();
+    }, 150 - since);
   }
 
   /** Apply measured note lengths (noteId → characters): leaves get their size and are rebuilt (debounced). */
@@ -422,8 +558,10 @@ export class TreeScene {
     this.last = performance.now();
     const loop = (now: number): void => {
       if (this.disposed) return;
-      this.frame(now);
       this.raf = requestAnimationFrame(loop);
+      // the profile's frame-rate cap: a 120/144 Hz display would otherwise render twice as many frames as a 60 Hz one
+      if (!this.limiter.shouldRender(now)) return;
+      this.frame(now);
     };
     this.raf = requestAnimationFrame(loop);
   }
@@ -431,6 +569,7 @@ export class TreeScene {
   dispose(): void {
     this.disposed = true;
     window.clearTimeout(this.leafTimer);
+    window.clearTimeout(this.buildTimer);
     cancelAnimationFrame(this.raf);
     for (const [t, f] of this.listeners) window.removeEventListener(t, f);
     this.labels.clear();
@@ -493,6 +632,7 @@ export class TreeScene {
     if (k === "f") this.toggleFoliage();
     if (k === "k") this.cycleShadows();
     if (k === "p") this.setPixelated(!this.pixelated);
+    if (k === "i") this.togglePerfOverlay();
     if (k === "+" || k === "=") this.zoom(1 / 1.2);
     if (k === "-" || k === "_") this.zoom(1.2);
     if (k === "e") {
@@ -512,6 +652,9 @@ export class TreeScene {
   }
 
   private buildWorld(): void {
+    window.clearTimeout(this.buildTimer);
+    this.buildTimer = 0;
+    this.lastBuild = performance.now();
     this.ground = this.findGround();
     disposeGroup(this.barkGroup);
     const envKey = environmentKey(this.look, this.ground, this.world); // an edit that leaves the ground contacts alone keeps the old scenery
@@ -551,23 +694,11 @@ export class TreeScene {
 
   nearestLeaf(maxDist = 70): Leaf | null {
     const c = this.creature;
-    if (c.air) return null;
+    if (c.air || !this.leafIdx) return null;
     const hb = this.world.branches.get(c.head.b);
     if (!hb) return null;
     const hp = c.flight ? c.flight.p : surfacePoint(hb, c.head.s, c.head.th).p;
-    let best: Leaf | null = null;
-    let bd = maxDist;
-    for (const leaf of this.leaves) {
-      const b = this.world.branches.get(leaf.branchId);
-      if (!b) continue;
-      const lp = surfacePoint(b, leaf.s, leaf.th, VOX * 3).p;
-      const d = Math.hypot(lp.x - hp.x, lp.y - hp.y, lp.z - hp.z);
-      if (d < bd) {
-        bd = d;
-        best = leaf;
-      }
-    }
-    return best;
+    return nearestLeafTo(this.leafIdx, hp.x, hp.y, hp.z, maxDist);
   }
 
   // ---- loop -----------------------------------------------------------------------
@@ -591,6 +722,9 @@ export class TreeScene {
   }
 
   private frame(now: number): void {
+    const cpu0 = performance.now();
+    const frameMs = this.lastRender > 0 ? now - this.lastRender : 0;
+    this.lastRender = now;
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     const t = now / 1000;
@@ -606,48 +740,82 @@ export class TreeScene {
       this.clouds.rotation.y = t * 0.0035;
     }
     const head = this.creature.flight ? this.creature.flight.p : bodyPoint(this.creature, 0).p;
+    const headV = T3(head);
     const cs = Math.max(0.4, this.camScale);
-    const wp = T3(head).add(new THREE.Vector3((-50 + Math.cos(t * 1.7) * 12) * cs, (100 + Math.sin(t * 2.3) * 10) * cs, 60 * cs));
-    this.wisp.position.lerp(wp, Math.min(1, dt * 4));
+    this.wispTarget.set(headV.x + (-50 + Math.cos(t * 1.7) * 12) * cs, headV.y + (100 + Math.sin(t * 2.3) * 10) * cs, headV.z + 60 * cs);
+    this.wisp.position.lerp(this.wispTarget, Math.min(1, dt * 4));
     this.wisp.scale.set(34 * cs, 34 * cs, 1);
     this.labels.update(this.camera);
-    this.foliage.update(dt, this.camera.position, T3(head), this.creature.head.b);
-    this.updateShadows(T3(head));
+    // the canopy fade is eased over ~0.2 s anyway: 30 updates a second look the same and cost half
+    this.foliageAcc += dt;
+    if (this.foliageAcc >= 1 / 30 - 0.001) {
+      this.foliage.update(this.foliageAcc, this.camera.position, headV, this.creature.head.b);
+      this.foliageAcc = 0;
+    }
+    this.updateShadows(headV);
     this.updatePreview();
     this.updateSilk();
+    this.renderer.info.reset();
+    const render0 = performance.now();
     this.renderer.render(this.scene, this.camera);
+    const cpu1 = performance.now();
+    this.lastInfo = { calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles };
+    this.clock.push(frameMs, cpu1 - cpu0, cpu1 - render0);
+    this.adapt(now);
     const c = this.creature;
+    // "next to a leaf" / "Shift would climb into" only matter to the HUD hints: ten times a second is plenty
+    if (now - this.hudAt >= 100) {
+      this.hudAt = now;
+      this.hudNear = this.nearestLeaf();
+      this.hudClimb = climbTarget(this.world, c)?.id ?? null;
+    }
     this.onHud?.({
       animal: c.animal.name, animalId: c.animal.id, flying: !!c.flight, aiming: !!c.aim, dangling: !!c.silk, canSilk: !!c.animal.silk, autoAlign: c.autoAlign, moveMode: c.moveMode, labels: this.labelMode, foliage: this.foliageOn, foliageDensity: this.foliageDensity, shadows: this.shadows.quality, branch: c.head.b, th: c.head.th, phi: c.phi, grip: c.grip, gripOn: c.gripOn,
       airborne: !!c.air, reaching: !!c.reach, chase: this.chase, camera: this.camMode, look: this.look,
-      nearLeaf: this.nearestLeaf(), climb: climbTarget(this.world, c)?.id ?? null,
+      nearLeaf: this.hudNear, climb: this.hudClimb,
+      perfProfile: this.perfProfile, perf: this.perfOverlay ? this.stats : null,
     });
+  }
+
+  /** Adaptive resolution: a few times a second, lower the pixel ratio while frames are slow, raise it back when they are clean. */
+  private adapt(now: number): void {
+    if (now - this.adaptAt < 250) return;
+    this.adaptAt = now;
+    if (!PROFILE[this.perfProfile].adaptive || this.pixelated) return;
+    const sm = this.clock.summary();
+    if (sm.samples < 30) return;
+    const next = this.adaptive.update(sm.avgFrameMs, now);
+    if (next !== this.resScale) {
+      this.resScale = next;
+      this.applyPixelRatio();
+      this.clock.reset(); // the old frames were rendered at another resolution
+    }
   }
 
   /** Shadow frustum follows the animal, the animal's meshes cast, the blob stands in while the real shadows are off. */
   private updateShadows(head: THREE.Vector3): void {
     tagShadows(this.creatureGroup, true, true); // the rig may rebuild its meshes at any time; already-tagged ones are skipped
     this.shadows.update(head, this.camera.position.distanceTo(head));
-    const len = Math.max(...this.creature.animal.nodes.map((n) => n.d));
-    this.contact.update(!this.shadows.on, head.x, head.z, this.ground, head.y - this.ground, len * 0.8, this.look === "voxel" ? 2 : 4);
+    if (this.lenId !== this.creature.animal.id) {
+      this.lenId = this.creature.animal.id;
+      this.lenVal = Math.max(...this.creature.animal.nodes.map((n) => n.d));
+    }
+    this.contact.update(!this.shadows.on, head.x, head.z, this.ground, head.y - this.ground, this.lenVal * 0.8, this.look === "voxel" ? 2 : 4);
   }
 
-  /** Rebuild the thread lines when a thread appeared/changed, and the live rope while dangling. */
+  /** Rebuild the thread lines when a thread appeared/changed (a version counter, not a string per frame), and the live rope while dangling. */
   private updateSilk(): void {
+    const rope = silkPoints(this.creature);
+    const ver = silkVersion();
+    if (!rope && !this.ropeShown && ver === this.silkVer) return;
+    this.silkVer = ver;
+    this.ropeShown = !!rope;
     const pts: number[] = [];
-    let sig = "";
     for (const b of this.world.branches.values()) {
       if (!b.silk) continue;
-      sig += `${b.id}:${b.total.toFixed(0)};`;
       for (let i = 1; i < b.pts.length; i++) pts.push(b.pts[i - 1].x, b.pts[i - 1].y, b.pts[i - 1].z, b.pts[i].x, b.pts[i].y, b.pts[i].z);
     }
-    const rope = silkPoints(this.creature);
-    if (rope) {
-      pts.push(rope.anchor.x, rope.anchor.y, rope.anchor.z, rope.p.x, rope.p.y, rope.p.z);
-      sig += `rope:${rope.p.x.toFixed(1)},${rope.p.y.toFixed(1)},${rope.p.z.toFixed(1)}`;
-    }
-    if (sig === this.silkSig) return;
-    this.silkSig = sig;
+    if (rope) pts.push(rope.anchor.x, rope.anchor.y, rope.anchor.z, rope.p.x, rope.p.y, rope.p.z);
     this.silkLines.geometry.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
     this.silkLines.geometry.computeBoundingSphere();
   }

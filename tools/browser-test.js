@@ -461,6 +461,24 @@ try {
     const aa1 = await page.evaluate(() => window.__treeScene.creature.autoAlign);
     if (aa0 !== aa1) ok(`tree view: H toggled auto-align (${aa0} → ${aa1})`);
     else fail("H did not toggle auto-align");
+    // performance: key I opens the panel with live numbers; the profile changes the pixel-ratio cap; the stats are real
+    await page.keyboard.press("i");
+    // (software GL renders ~2 frames a second here, so every wait on the scene needs a generous timeout)
+    await page.waitForSelector('[data-testid="perf-overlay"]', { timeout: 45000 });
+    await page.waitForFunction(() => window.__treeScene.stats.samples >= 4, { timeout: 60000 });
+    const ps = await page.evaluate(() => window.__treeScene.stats);
+    const finiteStats = [ps.fps, ps.avgFrameMs, ps.avgCpuMs, ps.avgRenderMs, ps.calls, ps.triangles, ps.dpr, ps.width, ps.height].every(Number.isFinite);
+    if (finiteStats && ps.calls > 5 && ps.triangles > 1000 && ps.fps > 0 && ps.dpr <= 2 && ps.width > 100) ok(`tree view: performance panel (I): ${ps.fps.toFixed(0)} fps, ${ps.calls} draw calls, ${ps.triangles} triangles, ratio ${ps.dpr.toFixed(2)}, ${ps.diagnosis}`);
+    else fail(`performance stats look wrong: ${JSON.stringify(ps)}`);
+    await page.getByRole("button", { name: "fast", exact: true }).click();
+    await page.waitForFunction(() => window.__treeScene.perfProfile === "fast" && window.__treeScene.stats.dpr <= 1, { timeout: 45000 });
+    await page.getByRole("button", { name: "quality", exact: true }).click();
+    await page.waitForFunction(() => window.__treeScene.perfProfile === "quality" && window.__treeScene.stats.maxFps === 0, { timeout: 45000 });
+    await page.getByRole("button", { name: "auto", exact: true }).click();
+    await page.waitForFunction(() => window.__treeScene.perfProfile === "auto", { timeout: 45000 });
+    ok("tree view: performance profiles switch (fast caps the pixel ratio at 1, quality lifts the fps cap)");
+    await page.keyboard.press("i");
+    await page.waitForSelector('[data-testid="perf-overlay"]', { state: "detached", timeout: 45000 });
     const tapered = await page.evaluate(() => [...window.__treeScene.world.branches.values()].filter((b) => !b.root).every((b) => b.rEnd < b.r));
     if (tapered) ok("tree view: every branch thins out along its length (ground roots excepted: they widen towards their tree)");
     else fail("some branch does not taper");

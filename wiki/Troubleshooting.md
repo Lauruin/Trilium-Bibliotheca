@@ -89,7 +89,7 @@ Symptom, then cause, then fix. Collected from `AGENTS.md`, `LOCAL-TESTING.md` an
 | A bee or dragonfly lands when I did not want to | `autoLand`: touching any branch lands it | Fly clear of the bark |
 | All leaves are the same size | Sizes are measured lazily after the tree opens, only for text, markdown and code, and only up to 400 fetches; a note without a `blobId` is never cached | Wait a moment; image and file notes stay at size 1 |
 | The tree is cut off or has "missing" rooms | The 400-note / depth-8 walk caps | See above |
-| Slow frame rate | Voxel bark costs about 3 to 5 thousand cubes per branch | Press `L` for low-poly, `P` for the pixel mode, use a smaller window |
+| Slow frame rate in the tree view | The GPU is the limit: pixel fill (high-DPI screen, MSAA), about a million voxel triangles, the shadow map, the translucent foliage | Press `I`: the panel shows the frame time against the JS time and the draw calls, and has the **profile** (`auto` is the default and lowers the resolution by itself; try `fast`) plus shadows / foliage / look switches. Also `L` for low-poly, `K` shadows off, a smaller window |
 | `T` or other keys do nothing | Typing in an input, a dialog is open, a modifier key is held, or (for `T`) the tree is not loaded yet | Close the dialog and try again |
 
 ## Mock, tools and tests

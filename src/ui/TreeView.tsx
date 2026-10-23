@@ -22,6 +22,7 @@ import { journal, undoEdit } from "../lib/worldedit";
 import { getClient, getState, notify, useAppStore } from "../state/store";
 import type { LibraryTree } from "../types";
 import { BranchPanel } from "./BranchPanel";
+import { PerfOverlay } from "./PerfOverlay";
 
 /** A branch's display name: the folder's title ("Library" for the root); a ground root (`root:<tree>`) is "<tree> roots". */
 function branchTitle(id: string, tree: LibraryTree | null): string {
@@ -331,7 +332,11 @@ export function TreeView(props: {
             <button onClick={() => sceneRef.current?.cycleCamera()} title="Camera: chase (rolls with the branch) · level (horizon stays level) · fixed (V)">
               camera: {hud.camera}
             </button>
+            <button className={hud.perf ? "active" : ""} onClick={() => sceneRef.current?.togglePerfOverlay()} title="Performance panel: FPS, where the time goes, quality profile (I)">
+              performance: {hud.perfProfile}
+            </button>
           </div>
+          <PerfOverlay hud={hud} scene={sceneRef.current} onClose={() => sceneRef.current?.togglePerfOverlay()} />
           {hud.gripOn && hud.grip < 0.999 && (
             <div className="tree-grip">
               <i style={{ width: `${hud.grip * 100}%`, background: hud.grip > 0.5 ? "#ffe080" : hud.grip > 0.25 ? "#ff9a40" : "#ff4a38" }} />
@@ -339,7 +344,7 @@ export function TreeView(props: {
           )}
           <div className="tree-controls">
             {hud.moveMode === "guided" ? "W up the branch · S down · A/D turn on it (left / right as you face)" : "W forward · A/D steer the heading"} · M move guided/free · hold Space to aim a jump (arc preview, auto-target), release to leap (snake: hold = reach, steer with WASD; squirrel: W dive / S flare; bee, dragonfly, blue jay: Space = take off, then Space up / Shift down or land; jay: W dive, S climb) ·
-            X = spider silk (drop, swing, climb the thread again) · Shift at a branch base = climb in · B edit this branch · Y layout forest/hub · E read · 1/2/3 animal category (again = next) · G grip {hud.gripOn ? "on" : "off"} · H auto-align (free mode) · N names · F foliage · K shadows · V camera · L look · wheel/+/− zoom · P pixels · T back to the library
+            X = spider silk (drop, swing, climb the thread again) · Shift at a branch base = climb in · B edit this branch · Y layout forest/hub · E read · 1/2/3 animal category (again = next) · G grip {hud.gripOn ? "on" : "off"} · H auto-align (free mode) · N names · F foliage · K shadows · V camera · L look · I performance · wheel/+/− zoom · P pixels · T back to the library
           </div>
         </>
       )}

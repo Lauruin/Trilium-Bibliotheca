@@ -33,6 +33,14 @@ export const SILK_MIN_LEN = 8;
 export const SILKS: SilkRecord[] = [];
 
 let counter = 0;
+let version = 0;
+/**
+ * Bumped whenever a thread is added, removed, or the threads are re-created in a rebuilt world: a renderer compares it to
+ * know whether the thread geometry changed (instead of rebuilding a signature string every frame).
+ */
+export function silkVersion(): number {
+  return version;
+}
 /** A fresh thread id "silk:<n>". */
 export function newSilkId(): string {
   counter++;
@@ -43,10 +51,12 @@ export function newSilkId(): string {
 export function clearSilks(): void {
   SILKS.length = 0;
   counter = 0;
+  version++;
 }
 
 /** Remove a thread branch from a world (also from the side lists it is in) and optionally from the store. */
 export function removeSilk(world: World, id: string, forget = true): void {
+  version++;
   world.branches.delete(id);
   for (const b of world.branches.values()) {
     const i = b.side.indexOf(id);
@@ -90,6 +100,7 @@ export function addSilk(world: World, rec: SilkRecord): Branch | null {
   if (world.branches.has(rec.id)) removeSilk(world, rec.id, false);
   const br = build(world, rec);
   if (!br) return null;
+  version++;
   const k = SILKS.findIndex((r) => r.id === rec.id);
   if (k >= 0) SILKS[k] = rec;
   else SILKS.push(rec);
@@ -98,6 +109,7 @@ export function addSilk(world: World, rec: SilkRecord): Branch | null {
 
 /** Re-create every stored thread in a (re)built world (anchors that no longer exist are skipped). Returns how many were built. */
 export function applySilks(world: World): number {
+  version++;
   let n = 0;
   for (const rec of SILKS) {
     if (world.branches.has(rec.id)) removeSilk(world, rec.id, false);
